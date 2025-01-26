@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "pathtracker",
+  "version": "1.0.0",
+  "name": "PathTracker",
+  "description": "A mod that allows the user to track his movement",
+  "authors": ["DookieLook"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "client": [
+      "com.pathtracker.PathTrackerClientMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.14.22",
+    "fabric-api": "*"
+  }
+}
