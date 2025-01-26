@@ -219,6 +219,16 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             return 1;
                         }))
                     )
+                    .then(literal("transparency")
+                        .then(argument("value", IntegerArgumentType.integer(0, 10000))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setTransparency(value / 10000.0f);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Transparency set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
             );
         });
 
@@ -313,7 +323,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         Vec3d camPos = camera.getPos();
 
         // Use the simple position + color shader
-        RenderSystem.setShader(() -> MinecraftClient.getInstance().gameRenderer.getPositionColorProgram());
+        RenderSystem.setShader(() -> context.gameRenderer().getPositionColorProgram());
 
         // Enable necessary OpenGL states for transparency
         RenderSystem.enableBlend();
@@ -380,7 +390,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
             float red = cubeRed;
             float green = cubeGreen;
             float blue = cubeBlue;
-            float alpha = 0.4f; // Adjust for desired transparency
+            float alpha = pathStorageSessions.getTransparency();
 
             // FRONT FACE
             buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)

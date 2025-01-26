@@ -162,6 +162,22 @@ All commands are prefixed with `/pathtracker`.
 
 *Respects depth, allowing cubes to be occluded by opaque blocks.*
 
+#### 7. **Transparency**
+
+- **Set Transparency**
+
+`/pathtracker transparency <value>`
+
+*Set the transparency to value/10000.*
+
+- **Parameters**:
+  - `<value>`: percentage value of transparency to set (each 1 equals to 0.0001%)
+
+- **Example**:
+  ```
+  /pathtracker transparency 5000
+  ```
+
 ## Configuration
 
 PathTracker stores its data within the Minecraft configuration directory, organizing tracking data per session and dimension. The `PathStorageSessions` class manages multiple sessions, each with its own set of tracked positions across different dimensions.

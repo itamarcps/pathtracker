@@ -28,6 +28,7 @@ public class PathStorageSessions {
     private Set<String> sessions;
     private String currentSession = "default";
     private String color = "0xFF0000";
+    private float transparency = 0.4f;
 
     // The file structure for PathStorageSessions are the following
     //  \CONFIG
@@ -53,24 +54,28 @@ public class PathStorageSessions {
                 // also create the /default folder if it doesn't exist
                 if (!Files.exists(dataStoragePath.resolve("default"))) {
                     Files.createDirectories(dataStoragePath.resolve("default"));
-                    // initialize session.json with an string array containing "default"
-                    try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("sessions.json"))) {
-                        JsonArray array = new JsonArray();
-                        array.add("default");
-                        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                        gson.toJson(array, writer);
-                    } catch (IOException e) {
-                        e.printStackTrace();
+                    if (!Files.exists(dataStoragePath.resolve("sessions.json"))) {
+                        try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("sessions.json"))) {
+                            JsonArray array = new JsonArray();
+                            array.add("default");
+                            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                            gson.toJson(array, writer);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
                     }
-                    // Also initialize the currentSession.json with "default"
-                    try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
-                        JsonObject obj = new JsonObject();
-                        obj.addProperty("currentSession", "default");
-                        obj.addProperty("color", "0xFF0000");
-                        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                        gson.toJson(obj, writer);
-                    } catch (IOException e) {
-                        e.printStackTrace();
+                    // Also initialize the settings.json with default values
+                    if (!Files.exists(dataStoragePath.resolve("settings.json"))) {
+                        try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
+                            JsonObject obj = new JsonObject();
+                            obj.addProperty("currentSession", "default");
+                            obj.addProperty("color", "0xFF0000");
+                            obj.addProperty("transparency", 0.4f);
+                            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                            gson.toJson(obj, writer);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
                     }
                 }
             } catch (IOException e) {
@@ -110,6 +115,9 @@ public class PathStorageSessions {
             if (obj.has("color")) {
                 this.color = obj.get("color").getAsString();
             }
+            if (obj.has("transparency")) {
+                this.transparency = obj.get("transparency").getAsFloat();
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -146,6 +154,7 @@ public class PathStorageSessions {
 
     public void setCurrentSession(String sessionName) {
         this.currentSession = sessionName;
+        dumpSettings();
     }
 
     public String getColor() {
@@ -154,16 +163,30 @@ public class PathStorageSessions {
 
     public void setColor(String color) {
         this.color = color;
+        dumpSettings();
+    }	
+
+    public float getTransparency() {
+        return this.transparency;
+    }
+
+    public void setTransparency(float transparency) {
+        this.transparency = transparency;
+        dumpSettings();
+    }
+
+    private void dumpSettings() {
         try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
             JsonObject obj = new JsonObject();
             obj.addProperty("currentSession", this.currentSession);
             obj.addProperty("color", color);
+            obj.addProperty("transparency", this.transparency);
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             gson.toJson(obj, writer);
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }	
+    }
 
     public void save(String sessionName, String mapName, Map<RegistryKey<World>, Set<BlockPos>> visitedPositionsMap) {
         if (!this.sessions.contains(sessionName)) {
