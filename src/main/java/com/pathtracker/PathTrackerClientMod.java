@@ -366,7 +366,10 @@ public class PathTrackerClientMod implements ClientModInitializer {
             double x = pos.getX() - camPos.x;
             double y = pos.getY() - camPos.y;
             double z = pos.getZ() - camPos.z;
-
+            // Skip blocks that are > 256 blocks away
+            if (Math.abs(x) > 256 || Math.abs(y) > 256 || Math.abs(z) > 256) {
+                continue;
+            }
             double xMin = x + offset;
             double xMax = x + offset + cubeSize;
             double yMin = y + offset;
