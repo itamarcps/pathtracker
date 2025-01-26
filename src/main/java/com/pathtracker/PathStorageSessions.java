@@ -33,6 +33,7 @@ public class PathStorageSessions {
     //  \CONFIG
     //  └───pathtracer
     //      │   sessions.json
+    //      │   settings.json
     //      │
     //      └───default
     //          path_data_MAP_NAME_overworld.json
