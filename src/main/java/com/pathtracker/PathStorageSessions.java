@@ -19,13 +19,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Set;
 import java.util.Map;
 
 
 public class PathStorageSessions {
     private final Path dataStoragePath;
-    private Set<String> sessions;
+    private HashSet<String> sessions;
     private String currentSession = "default";
     private String color = "0xFF0000";
     private float transparency = 0.4f;
@@ -137,7 +136,7 @@ public class PathStorageSessions {
         } 
     }  
 
-    public Set<String> getSessions() {
+    public HashSet<String> getSessions() {
         return this.sessions;
     }
 
@@ -188,14 +187,14 @@ public class PathStorageSessions {
         }
     }
 
-    public void save(String sessionName, String mapName, Map<RegistryKey<World>, Set<BlockPos>> visitedPositionsMap) {
+    public void save(String sessionName, String mapName, Map<RegistryKey<World>, HashSet<BlockPos>> visitedPositionsMap) {
         if (!this.sessions.contains(sessionName)) {
             this.sessions.add(sessionName);
             dumpSessions();
         }
-        for (Map.Entry<RegistryKey<World>, Set<BlockPos>> entry : visitedPositionsMap.entrySet()) {
+        for (Map.Entry<RegistryKey<World>, HashSet<BlockPos>> entry : visitedPositionsMap.entrySet()) {
             RegistryKey<World> dimensionKey = entry.getKey();
-            Set<BlockPos> positions = entry.getValue();
+            HashSet<BlockPos> positions = entry.getValue();
             String dimensionName = dimensionKey.getValue().toString().replace(':', '_').replace('/', '_');
             String fileName = "path_data_" + mapName + "_" + dimensionName + ".json";
             JsonArray array = new JsonArray();
@@ -223,8 +222,8 @@ public class PathStorageSessions {
         }        
     }
 
-    public Map<RegistryKey<World>, Set<BlockPos>> load(String sessionName, String mapName) {
-        Map<RegistryKey<World>, Set<BlockPos>> visitedPositionsMap = new HashMap<>();
+    public Map<RegistryKey<World>, HashSet<BlockPos>> load(String sessionName, String mapName) {
+        Map<RegistryKey<World>, HashSet<BlockPos>> visitedPositionsMap = new HashMap<>();
         for (String session : this.sessions) {
             String fileName = "path_data_" + mapName + "_";
             if (session.equals(sessionName)) {
@@ -243,7 +242,7 @@ public class PathStorageSessions {
                             return visitedPositionsMap;
                         }
                         JsonArray array = element.getAsJsonArray();
-                        Set<BlockPos> loadedPositions = new HashSet<>();
+                        HashSet<BlockPos> loadedPositions = new HashSet<>();
                         for (JsonElement e : array) {
                             if (e.isJsonObject()) {
                                 JsonObject obj = e.getAsJsonObject();
@@ -267,7 +266,7 @@ public class PathStorageSessions {
                             return visitedPositionsMap;
                         }
                         JsonArray array = element.getAsJsonArray();
-                        Set<BlockPos> loadedPositions = new HashSet<>();
+                        HashSet<BlockPos> loadedPositions = new HashSet<>();
                         for (JsonElement e : array) {
                             if (e.isJsonObject()) {
                                 JsonObject obj = e.getAsJsonObject();
@@ -291,7 +290,7 @@ public class PathStorageSessions {
                             return visitedPositionsMap;
                         }
                         JsonArray array = element.getAsJsonArray();
-                        Set<BlockPos> loadedPositions = new HashSet<>();
+                        HashSet<BlockPos> loadedPositions = new HashSet<>();
                         for (JsonElement e : array) {
                             if (e.isJsonObject()) {
                                 JsonObject obj = e.getAsJsonObject();

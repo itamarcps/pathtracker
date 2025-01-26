@@ -64,7 +64,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
     private static KeyBinding toggleRenderingKey;
 
     // Map to hold visited positions per dimension
-    private Map<RegistryKey<World>, Set<BlockPos>> visitedPositionsMap = new HashMap<>();
+    private Map<RegistryKey<World>, HashSet<BlockPos>> visitedPositionsMap = new HashMap<>();
     // Storage for path data (for everything)
     PathStorageSessions pathStorageSessions = new PathStorageSessions("pathtracer");
     private BlockPos lastTrackedPos = null;
@@ -283,11 +283,8 @@ public class PathTrackerClientMod implements ClientModInitializer {
         // Track the block one behind the player
         BlockPos behindPos = getBlockBehindPlayer(client.player);
 
-        // Get the set for the current dimension
-        Set<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
-
         if (!behindPos.equals(lastTrackedPos)) {
-            currentVisited.add(behindPos);
+            visitedPositionsMap.get(currentDimension).add(behindPos);
             lastTrackedPos = behindPos;
         }
     }
@@ -357,7 +354,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
 
         // Get the set for the current dimension
-        Set<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
+        HashSet<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
         if (currentVisited == null || currentVisited.isEmpty()) {
             // No positions to render
             tessellator.draw();
