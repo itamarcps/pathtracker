@@ -63,7 +63,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
     private static KeyBinding toggleTrackingKey;
     private static KeyBinding toggleRenderingKey;
 
-    // Map to hold visited positions per dimension, now as an ordered List
+    // Map to hold visited positions per dimension, stored as an ordered list.
     private Map<RegistryKey<World>, List<BlockPos>> visitedPositionsMap = new HashMap<>();
     // Storage for path data (for everything)
     PathStorageSessions pathStorageSessions = new PathStorageSessions("pathtracer");
@@ -74,7 +74,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
     public void onInitializeClient() {
         System.out.println("[PathTracker] onInitializeClient called!");
 
-        // Load from DB...
+        // Load color settings from storage...
         setCubeColorFromHex(pathStorageSessions.getColor());
 
         // ------------------------------------------------
@@ -101,7 +101,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
 
         // Save path data when shutting down
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> saveAllPathData());
-
+        
         // ------------------------------------------------
         // 3) Commands
         // ------------------------------------------------
@@ -235,9 +235,6 @@ public class PathTrackerClientMod implements ClientModInitializer {
         System.out.println("[PathTracker] onInitializeClient complete.");
     }
 
-    /**
-     * Handles client tick events to manage key bindings and track player movement.
-     */
     private void onEndClientTick(MinecraftClient client) {
         // Toggle tracking if key pressed
         if (toggleTrackingKey.wasPressed()) {
@@ -265,7 +262,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
             mapName = client.getCurrentServerEntry().address;
         }
 
-        // Initialize storage for the current map if not present or if map switched
+        // Initialize storage for the current map if not present or if the map has switched
         if (this.currentMap == null || !this.currentMap.equals(mapName)) {
             this.currentMap = mapName;
             this.visitedPositionsMap = pathStorageSessions.load(pathStorageSessions.getCurrentSession(), this.currentMap);
@@ -277,10 +274,9 @@ public class PathTrackerClientMod implements ClientModInitializer {
 
         // If not tracking, skip
         if (!trackingEnabled) return;
-        // If no player or world, skip
         if (client.player == null || client.world == null) return;
 
-        // Get the block one behind the player
+        // Track the block one behind the player
         BlockPos behindPos = getBlockBehindPlayer(client.player);
 
         // Ensure we have a list for the current dimension
@@ -292,25 +288,14 @@ public class PathTrackerClientMod implements ClientModInitializer {
         }
     }
 
-    /**
-     * Calculates the block position one block behind the player based on their facing direction.
-     *
-     * @param player The player entity.
-     * @return The BlockPos one block behind the player.
-     */
     private BlockPos getBlockBehindPlayer(net.minecraft.entity.player.PlayerEntity player) {
-        // Get the direction the player is facing
         Direction facing = player.getHorizontalFacing();
-
-        // Get the block position one block behind the player
         BlockPos currentPos = player.getBlockPos();
-        BlockPos behindPos = currentPos.offset(facing.getOpposite());
-
-        return behindPos;
+        return currentPos.offset(facing.getOpposite());
     }
 
     /**
-     * Renders the visited path as a continuous thick line connecting the centers of visited blocks.
+     * Renders the visited path as a smooth, thick curved line.
      */
     private void onWorldRender(WorldRenderContext context) {
         if (!renderingEnabled) return;
@@ -319,10 +304,8 @@ public class PathTrackerClientMod implements ClientModInitializer {
         Camera camera = context.camera();
         Vec3d camPos = camera.getPos();
 
-        // Use the simple position + color shader
+        // Use the simple position+color shader.
         RenderSystem.setShader(() -> context.gameRenderer().getPositionColorProgram());
-
-        // Enable blending for transparency
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
 
@@ -332,20 +315,16 @@ public class PathTrackerClientMod implements ClientModInitializer {
         } else {
             RenderSystem.disableDepthTest();
         }
-
         RenderSystem.disableCull();
 
         Tessellator tessellator = Tessellator.getInstance();
         BufferBuilder buffer = tessellator.getBuffer();
-
-        // Begin drawing quads (each quad will represent a segment of the thick line)
         buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
 
-        // Get current dimension
+        // Get the current dimension and its visited block centers.
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
-
-        List<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
-        if (currentVisited == null || currentVisited.size() < 2) {
+        List<BlockPos> visited = visitedPositionsMap.get(currentDimension);
+        if (visited == null || visited.size() < 2) {
             tessellator.draw();
             if (!depthOverride) {
                 RenderSystem.disableDepthTest();
@@ -356,66 +335,88 @@ public class PathTrackerClientMod implements ClientModInitializer {
             return;
         }
 
-        // For each consecutive pair, draw a quad that connects the two block centers.
-        // We assume the “center” of a block is at (x+0.5, y+0.5, z+0.5).
-        final double maxConnectionDistance = 1.5; // If points are farther apart, skip joining them.
-        final double halfThickness = 0.1 / 2.0;     // 10% of a block width
+        // Convert visited blocks to their center positions.
+        List<Vec3d> centers = new ArrayList<>();
+        for (BlockPos pos : visited) {
+            centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+        }
 
-        for (int i = 0; i < currentVisited.size() - 1; i++) {
-            BlockPos posA = currentVisited.get(i);
-            BlockPos posB = currentVisited.get(i + 1);
-
-            Vec3d A = new Vec3d(posA.getX() + 0.5, posA.getY() + 0.5, posA.getZ() + 0.5);
-            Vec3d B = new Vec3d(posB.getX() + 0.5, posB.getY() + 0.5, posB.getZ() + 0.5);
-
-            if (A.distanceTo(B) > maxConnectionDistance) {
-                // If the two points are not adjacent, do not connect them.
-                continue;
+        // Generate a smooth curve through the centers using Catmull–Rom spline.
+        List<Vec3d> curvePoints = new ArrayList<>();
+        final int subdivisions = 8; // adjust subdivisions per segment for smoothness
+        for (int i = 0; i < centers.size() - 1; i++) {
+            // Use the previous and next points as control points.
+            Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
+            Vec3d p1 = centers.get(i);
+            Vec3d p2 = centers.get(i + 1);
+            Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
+            for (int j = 0; j < subdivisions; j++) {
+                double t = j / (double) subdivisions;
+                Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                curvePoints.add(pt);
             }
+        }
+        // Ensure the final center is added.
+        curvePoints.add(centers.get(centers.size() - 1));
 
-            Vec3d mid = A.add(B).multiply(0.5);
-            Vec3d tangent = B.subtract(A).normalize();
-            Vec3d toCam = mid.subtract(camPos).normalize();
-            Vec3d perpendicular = tangent.crossProduct(toCam).normalize();
-            Vec3d offset = perpendicular.multiply(halfThickness);
+        final double halfThickness = 0.1 / 2.0; // 10% block width
+        float alpha = pathStorageSessions.getTransparency();
 
-            // Compute the four corners of the quad:
-            Vec3d A_left  = A.subtract(offset);
-            Vec3d A_right = A.add(offset);
-            Vec3d B_left  = B.subtract(offset);
-            Vec3d B_right = B.add(offset);
+        // Build a quad strip along the smooth curve.
+        for (int i = 0; i < curvePoints.size() - 1; i++) {
+            Vec3d current = curvePoints.get(i);
+            Vec3d next = curvePoints.get(i + 1);
+            Vec3d tangent = next.subtract(current).normalize();
 
-            float alpha = pathStorageSessions.getTransparency();
+            // To compute the thick line, get a perpendicular vector that points “to the side”
+            Vec3d toCam = current.subtract(camPos).normalize();
+            Vec3d perp = tangent.crossProduct(toCam).normalize();
+            Vec3d offset = perp.multiply(halfThickness);
 
-            // Subtract the camera position for each vertex
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(A_left.x - camPos.x), (float)(A_left.y - camPos.y), (float)(A_left.z - camPos.z))
+            Vec3d currentLeft = current.subtract(offset);
+            Vec3d currentRight = current.add(offset);
+            Vec3d nextLeft = next.subtract(offset);
+            Vec3d nextRight = next.add(offset);
+
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(currentLeft.x - camPos.x), (float)(currentLeft.y - camPos.y), (float)(currentLeft.z - camPos.z))
                   .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(A_right.x - camPos.x), (float)(A_right.y - camPos.y), (float)(A_right.z - camPos.z))
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(currentRight.x - camPos.x), (float)(currentRight.y - camPos.y), (float)(currentRight.z - camPos.z))
                   .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(B_right.x - camPos.x), (float)(B_right.y - camPos.y), (float)(B_right.z - camPos.z))
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(nextRight.x - camPos.x), (float)(nextRight.y - camPos.y), (float)(nextRight.z - camPos.z))
                   .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(B_left.x - camPos.x), (float)(B_left.y - camPos.y), (float)(B_left.z - camPos.z))
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(nextLeft.x - camPos.x), (float)(nextLeft.y - camPos.y), (float)(nextLeft.z - camPos.z))
                   .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
         }
 
         tessellator.draw();
-
         if (!depthOverride) {
             RenderSystem.disableDepthTest();
             RenderSystem.depthMask(true);
         }
         RenderSystem.enableCull();
-
         RenderSystem.setShader(GameRenderer::getPositionTexProgram);
     }
 
     /**
-     * Saves all path data for all dimensions.
+     * Computes a point on a Catmull–Rom spline given four control points and a parameter t in [0, 1].
+     *
+     * The formula is:  
+     * 0.5 * [2P1 + (P2 – P0)t + (2P0 – 5P1 + 4P2 – P3)t² + (–P0 + 3P1 – 3P2 + P3)t³]
      */
+    private Vec3d catmullRom(Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, double t) {
+        double t2 = t * t;
+        double t3 = t2 * t;
+        Vec3d term1 = p1.multiply(2.0);
+        Vec3d term2 = p2.subtract(p0).multiply(t);
+        Vec3d term3 = p0.multiply(2.0).subtract(p1.multiply(5.0)).add(p2.multiply(4.0)).subtract(p3).multiply(t2);
+        Vec3d term4 = p0.negate().add(p1.multiply(3.0)).subtract(p2.multiply(3.0)).add(p3).multiply(t3);
+        return term1.add(term2).add(term3).add(term4).multiply(0.5);
+    }
+
     private void saveAllPathData() {
         System.out.println("[PathTracker] Saving all path data...");
         System.out.println("[PathTracker] Saving Current session: " + pathStorageSessions.getCurrentSession());
@@ -423,12 +424,6 @@ public class PathTrackerClientMod implements ClientModInitializer {
         pathStorageSessions.save(pathStorageSessions.getCurrentSession(), this.currentMap, visitedPositionsMap);
     }
 
-    /**
-     * Parses and sets the overlay color from a hex string (#RRGGBB or RRGGBB).
-     *
-     * @param rawHex The hex color string.
-     * @return True if the color was set successfully, false otherwise.
-     */
     private static boolean setCubeColorFromHex(String rawHex) {
         if (rawHex.startsWith("#")) {
             rawHex = rawHex.substring(1);
