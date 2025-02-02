@@ -1,9 +1,9 @@
 package com.pathtracker;
 
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -48,7 +48,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
 
     // Whether we’re currently tracking player movement
     private static boolean trackingEnabled = false;
-    // Whether we’re rendering the block overlays
+    // Whether we’re rendering the path overlay
     private static boolean renderingEnabled = false;
 
     // Overlay color components (defaults to red)
@@ -63,8 +63,8 @@ public class PathTrackerClientMod implements ClientModInitializer {
     private static KeyBinding toggleTrackingKey;
     private static KeyBinding toggleRenderingKey;
 
-    // Map to hold visited positions per dimension
-    private Map<RegistryKey<World>, HashSet<BlockPos>> visitedPositionsMap = new HashMap<>();
+    // Map to hold visited positions per dimension, now as an ordered List
+    private Map<RegistryKey<World>, List<BlockPos>> visitedPositionsMap = new HashMap<>();
     // Storage for path data (for everything)
     PathStorageSessions pathStorageSessions = new PathStorageSessions("pathtracer");
     private BlockPos lastTrackedPos = null;
@@ -265,7 +265,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
             mapName = client.getCurrentServerEntry().address;
         }
 
-        // Initialize storage for the current dimension if not present
+        // Initialize storage for the current map if not present or if map switched
         if (this.currentMap == null || !this.currentMap.equals(mapName)) {
             this.currentMap = mapName;
             this.visitedPositionsMap = pathStorageSessions.load(pathStorageSessions.getCurrentSession(), this.currentMap);
@@ -280,8 +280,11 @@ public class PathTrackerClientMod implements ClientModInitializer {
         // If no player or world, skip
         if (client.player == null || client.world == null) return;
 
-        // Track the block one behind the player
+        // Get the block one behind the player
         BlockPos behindPos = getBlockBehindPlayer(client.player);
+
+        // Ensure we have a list for the current dimension
+        visitedPositionsMap.computeIfAbsent(currentDimension, key -> new ArrayList<>());
 
         if (!behindPos.equals(lastTrackedPos)) {
             visitedPositionsMap.get(currentDimension).add(behindPos);
@@ -307,13 +310,10 @@ public class PathTrackerClientMod implements ClientModInitializer {
     }
 
     /**
-     * Renders each visited position as a small, translucent cube with a custom color.
+     * Renders the visited path as a continuous thick line connecting the centers of visited blocks.
      */
     private void onWorldRender(WorldRenderContext context) {
         if (!renderingEnabled) return;
-
-        // Optional: Uncomment for debugging to ensure this method is being called
-        // System.out.println("[PathTracker] onWorldRender called, drawing overlays!");
 
         MatrixStack matrixStack = context.matrixStack();
         Camera camera = context.camera();
@@ -322,168 +322,94 @@ public class PathTrackerClientMod implements ClientModInitializer {
         // Use the simple position + color shader
         RenderSystem.setShader(() -> context.gameRenderer().getPositionColorProgram());
 
-        // Enable necessary OpenGL states for transparency
+        // Enable blending for transparency
         RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc(); // Equivalent to GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA
-
+        RenderSystem.defaultBlendFunc();
 
         if (!depthOverride) {
-            // Enable depth testing to ensure correct occlusion by opaque blocks
             RenderSystem.enableDepthTest();
-            // Prevent the cubes from writing to the depth buffer
             RenderSystem.depthMask(false);
         } else {
-            // Disable depth testing to render on top of everything
             RenderSystem.disableDepthTest();
         }
 
-        // Optionally, disable face culling to ensure all faces are rendered
         RenderSystem.disableCull();
 
         Tessellator tessellator = Tessellator.getInstance();
         BufferBuilder buffer = tessellator.getBuffer();
 
-        // Use the simplified vertex format: POSITION_COLOR
+        // Begin drawing quads (each quad will represent a segment of the thick line)
         buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-
-        // Define cube size and offset to center the cube within the block
-        float cubeSize = 0.6f;
-        float offset = (1.0f - cubeSize) / 2.0f; // Center the smaller cube
 
         // Get current dimension
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
 
-        // Get the set for the current dimension
-        HashSet<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
-        if (currentVisited == null || currentVisited.isEmpty()) {
-            // No positions to render
+        List<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
+        if (currentVisited == null || currentVisited.size() < 2) {
             tessellator.draw();
-            // Re-enable depth writing and face culling after rendering
             if (!depthOverride) {
                 RenderSystem.disableDepthTest();
                 RenderSystem.depthMask(true);
             }
             RenderSystem.enableCull();
-            // Optional: Reset shader to default after rendering
             RenderSystem.setShader(GameRenderer::getPositionTexProgram);
             return;
         }
 
-        for (BlockPos pos : currentVisited) {
-            double x = pos.getX() - camPos.x;
-            double y = pos.getY() - camPos.y;
-            double z = pos.getZ() - camPos.z;
-            // Skip blocks that are > 256 blocks away
-            if (Math.abs(x) > 256 || Math.abs(y) > 256 || Math.abs(z) > 256) {
+        // For each consecutive pair, draw a quad that connects the two block centers.
+        // We assume the “center” of a block is at (x+0.5, y+0.5, z+0.5).
+        final double maxConnectionDistance = 1.5; // If points are farther apart, skip joining them.
+        final double halfThickness = 0.1 / 2.0;     // 10% of a block width
+
+        for (int i = 0; i < currentVisited.size() - 1; i++) {
+            BlockPos posA = currentVisited.get(i);
+            BlockPos posB = currentVisited.get(i + 1);
+
+            Vec3d A = new Vec3d(posA.getX() + 0.5, posA.getY() + 0.5, posA.getZ() + 0.5);
+            Vec3d B = new Vec3d(posB.getX() + 0.5, posB.getY() + 0.5, posB.getZ() + 0.5);
+
+            if (A.distanceTo(B) > maxConnectionDistance) {
+                // If the two points are not adjacent, do not connect them.
                 continue;
             }
-            double xMin = x + offset;
-            double xMax = x + offset + cubeSize;
-            double yMin = y + offset;
-            double yMax = y + offset + cubeSize;
-            double zMin = z + offset;
-            double zMax = z + offset + cubeSize;
 
-            float red = cubeRed;
-            float green = cubeGreen;
-            float blue = cubeBlue;
+            Vec3d mid = A.add(B).multiply(0.5);
+            Vec3d tangent = B.subtract(A).normalize();
+            Vec3d toCam = mid.subtract(camPos).normalize();
+            Vec3d perpendicular = tangent.crossProduct(toCam).normalize();
+            Vec3d offset = perpendicular.multiply(halfThickness);
+
+            // Compute the four corners of the quad:
+            Vec3d A_left  = A.subtract(offset);
+            Vec3d A_right = A.add(offset);
+            Vec3d B_left  = B.subtract(offset);
+            Vec3d B_right = B.add(offset);
+
             float alpha = pathStorageSessions.getTransparency();
 
-            // FRONT FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
+            // Subtract the camera position for each vertex
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(A_left.x - camPos.x), (float)(A_left.y - camPos.y), (float)(A_left.z - camPos.z))
+                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(A_right.x - camPos.x), (float)(A_right.y - camPos.y), (float)(A_right.z - camPos.z))
+                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(B_right.x - camPos.x), (float)(B_right.y - camPos.y), (float)(B_right.z - camPos.z))
+                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // BACK FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // LEFT FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // RIGHT FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // BOTTOM FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // TOP FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
+            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(B_left.x - camPos.x), (float)(B_left.y - camPos.y), (float)(B_left.z - camPos.z))
+                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
                   .next();
         }
 
         tessellator.draw();
 
-        // Re-enable depth writing and face culling after rendering
         if (!depthOverride) {
             RenderSystem.disableDepthTest();
             RenderSystem.depthMask(true);
         }
         RenderSystem.enableCull();
 
-        // Optional: Reset shader to default after rendering
         RenderSystem.setShader(GameRenderer::getPositionTexProgram);
     }
 
@@ -492,7 +418,6 @@ public class PathTrackerClientMod implements ClientModInitializer {
      */
     private void saveAllPathData() {
         System.out.println("[PathTracker] Saving all path data...");
-        // print to console currentSession and mapName for debugging
         System.out.println("[PathTracker] Saving Current session: " + pathStorageSessions.getCurrentSession());
         System.out.println("[PathTracker] Saving Map name: " + this.currentMap);
         pathStorageSessions.save(pathStorageSessions.getCurrentSession(), this.currentMap, visitedPositionsMap);
