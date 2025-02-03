@@ -225,6 +225,22 @@ All commands are prefixed with `/pathtracker`.
   /pathtracker renderdistance 512
   ```
 
+#### 11. **Subdivisions**
+
+- **Subdivisions**
+
+`/pathtracker subdivisions <value>`
+
+*Set the subdivisions of the strip (0 to 100).*
+
+- **Parameters**:
+  - `<value>`: subdivisions value to set
+
+- **Example**:
+  ```
+  /pathtracker subdivisions 10
+  ```
+
 ## Configuration
 
 PathTracker stores its data within the Minecraft configuration directory, organizing tracking data per session and dimension. The `PathStorageSessions` class manages multiple sessions, each with its own set of tracked positions across different dimensions.
