@@ -101,7 +101,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
 
         // Save path data when shutting down
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> saveAllPathData());
-        
+
         // ------------------------------------------------
         // 3) Commands
         // ------------------------------------------------
@@ -299,16 +299,16 @@ public class PathTrackerClientMod implements ClientModInitializer {
      */
     private void onWorldRender(WorldRenderContext context) {
         if (!renderingEnabled) return;
-
+    
         MatrixStack matrixStack = context.matrixStack();
         Camera camera = context.camera();
         Vec3d camPos = camera.getPos();
-
+    
         // Use the simple position+color shader.
         RenderSystem.setShader(() -> context.gameRenderer().getPositionColorProgram());
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-
+    
         if (!depthOverride) {
             RenderSystem.enableDepthTest();
             RenderSystem.depthMask(false);
@@ -316,11 +316,11 @@ public class PathTrackerClientMod implements ClientModInitializer {
             RenderSystem.disableDepthTest();
         }
         RenderSystem.disableCull();
-
+    
         Tessellator tessellator = Tessellator.getInstance();
         BufferBuilder buffer = tessellator.getBuffer();
         buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-
+    
         // Get the current dimension and its visited block centers.
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
         List<BlockPos> visited = visitedPositionsMap.get(currentDimension);
@@ -334,68 +334,104 @@ public class PathTrackerClientMod implements ClientModInitializer {
             RenderSystem.setShader(GameRenderer::getPositionTexProgram);
             return;
         }
-
-        // Convert visited blocks to their center positions.
-        List<Vec3d> centers = new ArrayList<>();
-        for (BlockPos pos : visited) {
-            centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+    
+        // Split visited positions into segments whenever the next block isn’t a neighbor.
+        List<List<BlockPos>> segments = new ArrayList<>();
+        List<BlockPos> currentSegment = new ArrayList<>();
+        currentSegment.add(visited.get(0));
+        for (int i = 1; i < visited.size(); i++) {
+             BlockPos prev = visited.get(i - 1);
+             BlockPos current = visited.get(i);
+             if (areNeighbors(prev, current)) {
+                  currentSegment.add(current);
+             } else {
+                  // Only keep segments with at least two blocks.
+                  if (currentSegment.size() >= 2) {
+                      segments.add(currentSegment);
+                  }
+                  currentSegment = new ArrayList<>();
+                  currentSegment.add(current);
+             }
         }
-
-        // Generate a smooth curve through the centers using Catmull–Rom spline.
-        List<Vec3d> curvePoints = new ArrayList<>();
-        final int subdivisions = 8; // adjust subdivisions per segment for smoothness
-        for (int i = 0; i < centers.size() - 1; i++) {
-            // Use the previous and next points as control points.
-            Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
-            Vec3d p1 = centers.get(i);
-            Vec3d p2 = centers.get(i + 1);
-            Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
-            for (int j = 0; j < subdivisions; j++) {
-                double t = j / (double) subdivisions;
-                Vec3d pt = catmullRom(p0, p1, p2, p3, t);
-                curvePoints.add(pt);
-            }
+        if (currentSegment.size() >= 2) {
+             segments.add(currentSegment);
         }
-        // Ensure the final center is added.
-        curvePoints.add(centers.get(centers.size() - 1));
-
-        final double halfThickness = 0.1 / 2.0; // 10% block width
+    
+        final int subdivisions = 16; // adjust subdivisions per segment for smoothness
+        final double halfThickness = 0.2 / 2.0; // 10% block width
         float alpha = pathStorageSessions.getTransparency();
-
-        // Build a quad strip along the smooth curve.
-        for (int i = 0; i < curvePoints.size() - 1; i++) {
-            Vec3d current = curvePoints.get(i);
-            Vec3d next = curvePoints.get(i + 1);
-            Vec3d tangent = next.subtract(current).normalize();
-
-            // To compute the thick line, get a perpendicular vector that points “to the side”
-            Vec3d toCam = current.subtract(camPos).normalize();
-            Vec3d perp = tangent.crossProduct(toCam).normalize();
-            Vec3d offset = perp.multiply(halfThickness);
-
-            Vec3d currentLeft = current.subtract(offset);
-            Vec3d currentRight = current.add(offset);
-            Vec3d nextLeft = next.subtract(offset);
-            Vec3d nextRight = next.add(offset);
-
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(currentLeft.x - camPos.x), (float)(currentLeft.y - camPos.y), (float)(currentLeft.z - camPos.z))
-                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(currentRight.x - camPos.x), (float)(currentRight.y - camPos.y), (float)(currentRight.z - camPos.z))
-                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(nextRight.x - camPos.x), (float)(nextRight.y - camPos.y), (float)(nextRight.z - camPos.z))
-                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)(nextLeft.x - camPos.x), (float)(nextLeft.y - camPos.y), (float)(nextLeft.z - camPos.z))
-                  .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                  .next();
+    
+        // For each segment, generate a smooth curve and build its quad strip.
+        for (List<BlockPos> segment : segments) {
+             // Convert block positions to their center positions.
+             List<Vec3d> centers = new ArrayList<>();
+             for (BlockPos pos : segment) {
+                  centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+             }
+             // Generate a smooth curve through the centers using Catmull–Rom spline.
+             List<Vec3d> curvePoints = new ArrayList<>();
+             if (centers.size() < 2) continue;
+             for (int i = 0; i < centers.size() - 1; i++) {
+                  Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
+                  Vec3d p1 = centers.get(i);
+                  Vec3d p2 = centers.get(i + 1);
+                  Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
+                  for (int j = 0; j < subdivisions; j++) {
+                       double t = j / (double) subdivisions;
+                       Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                       curvePoints.add(pt);
+                  }
+             }
+             // Ensure the final center is added.
+             curvePoints.add(centers.get(centers.size() - 1));
+    
+             // Build a quad strip along the smooth curve for this segment.
+             for (int i = 0; i < curvePoints.size() - 1; i++) {
+                  Vec3d current = curvePoints.get(i);
+                  Vec3d next = curvePoints.get(i + 1);
+                  Vec3d tangent = next.subtract(current).normalize();
+    
+                  // Compute a perpendicular vector to the tangent (facing away from the camera)
+                  Vec3d toCam = current.subtract(camPos).normalize();
+                  Vec3d perp = tangent.crossProduct(toCam).normalize();
+                  Vec3d offset = perp.multiply(halfThickness);
+    
+                  Vec3d currentLeft = current.subtract(offset);
+                  Vec3d currentRight = current.add(offset);
+                  Vec3d nextLeft = next.subtract(offset);
+                  Vec3d nextRight = next.add(offset);
+    
+                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                      (float)(currentLeft.x - camPos.x),
+                      (float)(currentLeft.y - camPos.y),
+                      (float)(currentLeft.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                      (float)(currentRight.x - camPos.x),
+                      (float)(currentRight.y - camPos.y),
+                      (float)(currentRight.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                      (float)(nextRight.x - camPos.x),
+                      (float)(nextRight.y - camPos.y),
+                      (float)(nextRight.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                      (float)(nextLeft.x - camPos.x),
+                      (float)(nextLeft.y - camPos.y),
+                      (float)(nextLeft.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+             }
         }
-
+    
         tessellator.draw();
         if (!depthOverride) {
-            RenderSystem.disableDepthTest();
-            RenderSystem.depthMask(true);
+             RenderSystem.disableDepthTest();
+             RenderSystem.depthMask(true);
         }
         RenderSystem.enableCull();
         RenderSystem.setShader(GameRenderer::getPositionTexProgram);
@@ -415,6 +451,16 @@ public class PathTrackerClientMod implements ClientModInitializer {
         Vec3d term3 = p0.multiply(2.0).subtract(p1.multiply(5.0)).add(p2.multiply(4.0)).subtract(p3).multiply(t2);
         Vec3d term4 = p0.negate().add(p1.multiply(3.0)).subtract(p2.multiply(3.0)).add(p3).multiply(t3);
         return term1.add(term2).add(term3).add(term4).multiply(0.5);
+    }
+
+    /**
+     * Returns true if the two block positions are adjacent in every axis.
+     */
+    private boolean areNeighbors(BlockPos a, BlockPos b) {
+        // 2 Steps in any direction (including diagonals)
+        return Math.abs(a.getX() - b.getX()) <= 2 &&
+               Math.abs(a.getY() - b.getY()) <= 2 &&
+               Math.abs(a.getZ() - b.getZ()) <= 2;
     }
 
     private void saveAllPathData() {

@@ -65,7 +65,7 @@ public class PathStorageSessions {
                             JsonObject obj = new JsonObject();
                             obj.addProperty("currentSession", "default");
                             obj.addProperty("color", "0xFF0000");
-                            obj.addProperty("transparency", 0.4f);
+                            obj.addProperty("transparency", 0.65f);
                             Gson gson = new GsonBuilder().setPrettyPrinting().create();
                             gson.toJson(obj, writer);
                         } catch (IOException e) {
