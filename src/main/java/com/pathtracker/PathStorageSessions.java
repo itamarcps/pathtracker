@@ -6,15 +6,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
-
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.world.World;
-
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -23,9 +24,8 @@ import java.util.HashSet; // still used for sessions
 import java.util.List;
 import java.util.Map;
 
-
 public class PathStorageSessions {
-    static enum Modes {
+    public static enum Modes {
         DEFAULT,
         GROUPED
     }
@@ -46,10 +46,10 @@ public class PathStorageSessions {
     //      │   settings.json
     //      │
     //      └───default
-    //          path_data_MAP_NAME_overworld.json
-    //          path_data_MAP_NAME_the_nether.json
-    //          path_data_MAP_NAME_the_end.json
-    
+    //          path_data_MAP_NAME_overworld.bin
+    //          path_data_MAP_NAME_the_nether.bin
+    //          path_data_MAP_NAME_the_end.bin
+
     public PathStorageSessions(String storagePath) {
         Path configDir = FabricLoader.getInstance().getConfigDir();
         this.dataStoragePath = configDir.resolve(storagePath);
@@ -89,6 +89,8 @@ public class PathStorageSessions {
                 e.printStackTrace();
             }
         }
+        // Automatically convert any legacy JSON path-data files to the new binary format.
+        convertAllJsonToBinary();
         loadSessions();
     }
 
@@ -245,7 +247,60 @@ public class PathStorageSessions {
     }
 
     /**
-     * Saves the path data for each dimension. The positions are saved as a JSON array in the order they were added.
+     * Converts all legacy JSON path-data files to the new binary format.
+     * For each session directory, any file matching "path_data_*.json" will be read,
+     * converted into a binary file (with extension ".bin"), and then deleted.
+     */
+    private void convertAllJsonToBinary() {
+        try {
+            Files.list(dataStoragePath)
+                .filter(Files::isDirectory)
+                .forEach(sessionDir -> {
+                    try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionDir, "path_data_*.json")) {
+                        for (Path jsonFile : stream) {
+                            List<BlockPos> positions = new ArrayList<>();
+                            try (Reader reader = Files.newBufferedReader(jsonFile)) {
+                                JsonElement element = JsonParser.parseReader(reader);
+                                if (element.isJsonArray()) {
+                                    JsonArray array = element.getAsJsonArray();
+                                    for (JsonElement e : array) {
+                                        if (e.isJsonObject()) {
+                                            JsonObject obj = e.getAsJsonObject();
+                                            int x = obj.get("x").getAsInt();
+                                            int y = obj.get("y").getAsInt();
+                                            int z = obj.get("z").getAsInt();
+                                            positions.add(new BlockPos(x, y, z));
+                                        }
+                                    }
+                                }
+                            }
+                            // Write out a binary file with the same base name but with a .bin extension.
+                            String fileName = jsonFile.getFileName().toString();
+                            String binFileName = fileName.substring(0, fileName.lastIndexOf('.')) + ".bin";
+                            Path binFile = sessionDir.resolve(binFileName);
+                            try (DataOutputStream dos = new DataOutputStream(Files.newOutputStream(binFile))) {
+                                // Write each BlockPos as 3 ints (4 bytes each, total 12 bytes per block)
+                                for (BlockPos pos : positions) {
+                                    dos.writeInt(pos.getX());
+                                    dos.writeInt(pos.getY());
+                                    dos.writeInt(pos.getZ());
+                                }
+                            }
+                            // Delete the old JSON file.
+                            Files.delete(jsonFile);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                });
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Saves the path data for each dimension in a binary file.
+     * Each BlockPos is serialized as 3 ints (4 bytes each, 12 bytes total per block).
      */
     public void save(String sessionName, String mapName, Map<RegistryKey<World>, List<BlockPos>> visitedPositionsMap) {
         if (!this.sessions.contains(sessionName)) {
@@ -256,15 +311,8 @@ public class PathStorageSessions {
             RegistryKey<World> dimensionKey = entry.getKey();
             List<BlockPos> positions = entry.getValue();
             String dimensionName = dimensionKey.getValue().toString().replace(':', '_').replace('/', '_');
-            String fileName = "path_data_" + mapName + "_" + dimensionName + ".json";
-            JsonArray array = new JsonArray();
-            for (BlockPos pos : positions) {
-                JsonObject obj = new JsonObject();
-                obj.addProperty("x", pos.getX());
-                obj.addProperty("y", pos.getY());
-                obj.addProperty("z", pos.getZ());
-                array.add(obj);
-            }
+            String fileName = "path_data_" + mapName + "_" + dimensionName + ".bin";
+            Path outFile = dataStoragePath.resolve(sessionName).resolve(fileName);
             if (!Files.exists(dataStoragePath.resolve(sessionName))) {
                 try {
                     Files.createDirectories(dataStoragePath.resolve(sessionName));
@@ -272,97 +320,59 @@ public class PathStorageSessions {
                     e.printStackTrace();
                 }
             }
-            try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve(sessionName).resolve(fileName))) {
-                Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                gson.toJson(array, writer);
+            try (DataOutputStream dos = new DataOutputStream(Files.newOutputStream(outFile))) {
+                // Write each BlockPos as 3 ints (12 bytes per position)
+                for (BlockPos pos : positions) {
+                    dos.writeInt(pos.getX());
+                    dos.writeInt(pos.getY());
+                    dos.writeInt(pos.getZ());
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        }        
+        }
     }
 
     /**
-     * Loads the path data for each dimension as an ordered list of BlockPos.
+     * Loads the path data for each dimension from the binary files.
      */
     public Map<RegistryKey<World>, List<BlockPos>> load(String sessionName, String mapName) {
         Map<RegistryKey<World>, List<BlockPos>> visitedPositionsMap = new HashMap<>();
-        // For each of the three dimensions, attempt to load the corresponding file.
         String filePrefix = "path_data_" + mapName + "_";
         
         // Overworld
-        if (Files.exists(dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_overworld.json"))) {
-            try (Reader reader = Files.newBufferedReader(dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_overworld.json"))){
-                JsonElement element = JsonParser.parseReader(reader);
-                List<BlockPos> loadedPositions = new ArrayList<>();
-                if (element.isJsonArray()) {
-                    JsonArray array = element.getAsJsonArray();
-                    for (JsonElement e : array) {
-                        if (e.isJsonObject()) {
-                            JsonObject obj = e.getAsJsonObject();
-                            int x = obj.get("x").getAsInt();
-                            int y = obj.get("y").getAsInt();
-                            int z = obj.get("z").getAsInt();
-                            loadedPositions.add(new BlockPos(x, y, z));
-                        }
-                    }
-                }
-                visitedPositionsMap.put(World.OVERWORLD, loadedPositions);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        } else {
-            visitedPositionsMap.put(World.OVERWORLD, new ArrayList<>());
-        }
+        Path overworldFile = dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_overworld.bin");
+        visitedPositionsMap.put(World.OVERWORLD, readBlockPosBinary(overworldFile));
         
         // Nether
-        if (Files.exists(dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_the_nether.json"))) {
-            try (Reader reader = Files.newBufferedReader(dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_the_nether.json"))){
-                JsonElement element = JsonParser.parseReader(reader);
-                List<BlockPos> loadedPositions = new ArrayList<>();
-                if (element.isJsonArray()) {
-                    JsonArray array = element.getAsJsonArray();
-                    for (JsonElement e : array) {
-                        if (e.isJsonObject()) {
-                            JsonObject obj = e.getAsJsonObject();
-                            int x = obj.get("x").getAsInt();
-                            int y = obj.get("y").getAsInt();
-                            int z = obj.get("z").getAsInt();
-                            loadedPositions.add(new BlockPos(x, y, z));
-                        }
-                    }
-                }
-                visitedPositionsMap.put(World.NETHER, loadedPositions);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        } else {
-            visitedPositionsMap.put(World.NETHER, new ArrayList<>());
-        }
+        Path netherFile = dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_the_nether.bin");
+        visitedPositionsMap.put(World.NETHER, readBlockPosBinary(netherFile));
         
         // End
-        if (Files.exists(dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_the_end.json"))) {
-            try (Reader reader = Files.newBufferedReader(dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_the_end.json"))){
-                JsonElement element = JsonParser.parseReader(reader);
-                List<BlockPos> loadedPositions = new ArrayList<>();
-                if (element.isJsonArray()) {
-                    JsonArray array = element.getAsJsonArray();
-                    for (JsonElement e : array) {
-                        if (e.isJsonObject()) {
-                            JsonObject obj = e.getAsJsonObject();
-                            int x = obj.get("x").getAsInt();
-                            int y = obj.get("y").getAsInt();
-                            int z = obj.get("z").getAsInt();
-                            loadedPositions.add(new BlockPos(x, y, z));
-                        }
-                    }
+        Path endFile = dataStoragePath.resolve(sessionName).resolve(filePrefix + "minecraft_the_end.bin");
+        visitedPositionsMap.put(World.END, readBlockPosBinary(endFile));
+        
+        return visitedPositionsMap;
+    }
+
+    /**
+     * Helper method to read a list of BlockPos from a binary file.
+     * Reads in 12 bytes at a time (3 ints) until the end of the file.
+     */
+    private List<BlockPos> readBlockPosBinary(Path file) {
+        List<BlockPos> positions = new ArrayList<>();
+        if (Files.exists(file)) {
+            try (DataInputStream dis = new DataInputStream(Files.newInputStream(file))) {
+                while (dis.available() >= 12) {
+                    int x = dis.readInt();
+                    int y = dis.readInt();
+                    int z = dis.readInt();
+                    positions.add(new BlockPos(x, y, z));
                 }
-                visitedPositionsMap.put(World.END, loadedPositions);
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        } else { 
-            visitedPositionsMap.put(World.END, new ArrayList<>());
         }
-        return visitedPositionsMap;
+        return positions;
     }
 }
