@@ -35,6 +35,7 @@ public class PathStorageSessions {
     private String color = "0xFF0000";
     private float transparency = 0.4f;
     private Modes mode = Modes.DEFAULT;
+    private float thickness = 0.2f;
 
     // The file structure for PathStorageSessions:
     //  \CONFIG
@@ -72,6 +73,7 @@ public class PathStorageSessions {
                             obj.addProperty("color", "0xFF0000");
                             obj.addProperty("transparency", 0.65f);
                             obj.addProperty("mode", Modes.DEFAULT.toString());
+                            obj.addProperty("thickness", 0.2f);
                             Gson gson = new GsonBuilder().setPrettyPrinting().create();
                             gson.toJson(obj, writer);
                         } catch (IOException e) {
@@ -119,6 +121,9 @@ public class PathStorageSessions {
             }
             if (obj.has("mode")) {
                 this.mode = Modes.valueOf(obj.get("mode").getAsString());
+            }
+            if (obj.has("thickness")) {
+                this.thickness = obj.get("thickness").getAsFloat();
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -185,6 +190,15 @@ public class PathStorageSessions {
         dumpSettings();
     }
 
+    public float getThickness() {
+        return this.thickness;
+    }
+
+    public void setThickness(float thickness) {
+        this.thickness = thickness;
+        dumpSettings();
+    }
+
     private void dumpSettings() {
         try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
             JsonObject obj = new JsonObject();
@@ -192,6 +206,7 @@ public class PathStorageSessions {
             obj.addProperty("color", color);
             obj.addProperty("transparency", this.transparency);
             obj.addProperty("mode", this.mode.toString());
+            obj.addProperty("thickness", this.thickness);
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             gson.toJson(obj, writer);
         } catch (IOException e) {

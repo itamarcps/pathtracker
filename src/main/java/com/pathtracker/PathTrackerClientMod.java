@@ -219,7 +219,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             return 1;
                         }))
                     )
-                    .then(literal("transparency")
+                    .then(literal("transparency") 
                         .then(argument("value", IntegerArgumentType.integer(0, 10000))
                             .executes(ctx -> {
                                 int value = IntegerArgumentType.getInteger(ctx, "value");
@@ -242,6 +242,18 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             return 1;
                         }))
                     )
+                    // /pathtracker thickness <value>
+                    .then(literal("thickness")
+                        .then(argument("value", IntegerArgumentType.integer(1, 100))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setThickness(value / 100.0f);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Thickness set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
+
             );
         });
 
@@ -312,7 +324,6 @@ public class PathTrackerClientMod implements ClientModInitializer {
      */
     private void onWorldRender(WorldRenderContext context) {
         if (!renderingEnabled) return;
-    
         MatrixStack matrixStack = context.matrixStack();
         Camera camera = context.camera();
         Vec3d camPos = camera.getPos();
@@ -369,7 +380,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         }
     
         final int subdivisions = 16; // adjust subdivisions per segment for smoothness
-        final double halfThickness = 0.2 / 2.0; // 20% block width
+        final double thickness = this.pathStorageSessions.getThickness();
         float alpha = pathStorageSessions.getTransparency();
     
         // For each segment, generate a smooth curve and build its quad strip.
@@ -445,7 +456,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
                      // Compute a perpendicular vector to the tangent (facing away from the camera)
                  Vec3d toCam = current.subtract(camPos).normalize();
                  Vec3d perp = tangent.crossProduct(toCam).normalize();
-                 Vec3d offset = perp.multiply(halfThickness);
+                 Vec3d offset = perp.multiply(thickness);
                      Vec3d currentLeft = current.subtract(offset);
                  Vec3d currentRight = current.add(offset);
                  Vec3d nextLeft = next.subtract(offset);
