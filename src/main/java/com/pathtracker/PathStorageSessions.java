@@ -34,7 +34,7 @@ public class PathStorageSessions {
     private String currentSession = "default";
     private String color = "0xFF0000";
     private float transparency = 0.4f;
-    private Modes mode = Modes.DEFAULT;
+    private Modes mode = Modes.GROUPED;
     private float thickness = 0.2f;
 
     // The file structure for PathStorageSessions:
@@ -72,7 +72,7 @@ public class PathStorageSessions {
                             obj.addProperty("currentSession", "default");
                             obj.addProperty("color", "0xFF0000");
                             obj.addProperty("transparency", 0.65f);
-                            obj.addProperty("mode", Modes.DEFAULT.toString());
+                            obj.addProperty("mode", Modes.GROUPED.toString());
                             obj.addProperty("thickness", 0.2f);
                             Gson gson = new GsonBuilder().setPrettyPrinting().create();
                             gson.toJson(obj, writer);
