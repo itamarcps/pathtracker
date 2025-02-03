@@ -345,7 +345,6 @@ public class PathTrackerClientMod implements ClientModInitializer {
              if (areNeighbors(prev, current)) {
                   currentSegment.add(current);
              } else {
-                  // Only keep segments with at least two blocks.
                   if (currentSegment.size() >= 2) {
                       segments.add(currentSegment);
                   }
@@ -368,22 +367,40 @@ public class PathTrackerClientMod implements ClientModInitializer {
              for (BlockPos pos : segment) {
                   centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
              }
-             // Generate a smooth curve through the centers using Catmull–Rom spline.
+             
+             // --- Group consecutive centers in batches of up to 5 ---
+             List<Vec3d> groupedCenters = new ArrayList<>();
+             int groupSize = 5;
+             for (int i = 0; i < centers.size(); i += groupSize) {
+                 int end = Math.min(i + groupSize, centers.size());
+                 double sumX = 0, sumY = 0, sumZ = 0;
+                 for (int j = i; j < end; j++) {
+                     Vec3d p = centers.get(j);
+                     sumX += p.x;
+                     sumY += p.y;
+                     sumZ += p.z;
+                 }
+                 double count = end - i;
+                 groupedCenters.add(new Vec3d(sumX / count, sumY / count, sumZ / count));
+             }
+             // --- End grouping ---
+             
+             // Generate a smooth curve through the grouped centers using a Catmull–Rom spline.
              List<Vec3d> curvePoints = new ArrayList<>();
-             if (centers.size() < 2) continue;
-             for (int i = 0; i < centers.size() - 1; i++) {
-                  Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
-                  Vec3d p1 = centers.get(i);
-                  Vec3d p2 = centers.get(i + 1);
-                  Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
+             if (groupedCenters.size() < 2) continue;
+             for (int i = 0; i < groupedCenters.size() - 1; i++) {
+                  Vec3d p0 = (i == 0) ? groupedCenters.get(i) : groupedCenters.get(i - 1);
+                  Vec3d p1 = groupedCenters.get(i);
+                  Vec3d p2 = groupedCenters.get(i + 1);
+                  Vec3d p3 = (i + 2 < groupedCenters.size()) ? groupedCenters.get(i + 2) : groupedCenters.get(i + 1);
                   for (int j = 0; j < subdivisions; j++) {
                        double t = j / (double) subdivisions;
                        Vec3d pt = catmullRom(p0, p1, p2, p3, t);
                        curvePoints.add(pt);
                   }
              }
-             // Ensure the final center is added.
-             curvePoints.add(centers.get(centers.size() - 1));
+             // Ensure the final grouped center is added.
+             curvePoints.add(groupedCenters.get(groupedCenters.size() - 1));
     
              // Build a quad strip along the smooth curve for this segment.
              for (int i = 0; i < curvePoints.size() - 1; i++) {
@@ -405,26 +422,26 @@ public class PathTrackerClientMod implements ClientModInitializer {
                       (float)(currentLeft.x - camPos.x),
                       (float)(currentLeft.y - camPos.y),
                       (float)(currentLeft.z - camPos.z))
-                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                        .next();
+                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                            .next();
                   buffer.vertex(matrixStack.peek().getPositionMatrix(),
                       (float)(currentRight.x - camPos.x),
                       (float)(currentRight.y - camPos.y),
                       (float)(currentRight.z - camPos.z))
-                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                        .next();
+                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                            .next();
                   buffer.vertex(matrixStack.peek().getPositionMatrix(),
                       (float)(nextRight.x - camPos.x),
                       (float)(nextRight.y - camPos.y),
                       (float)(nextRight.z - camPos.z))
-                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                        .next();
+                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                            .next();
                   buffer.vertex(matrixStack.peek().getPositionMatrix(),
                       (float)(nextLeft.x - camPos.x),
                       (float)(nextLeft.y - camPos.y),
                       (float)(nextLeft.z - camPos.z))
-                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                        .next();
+                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                            .next();
              }
         }
     
@@ -436,6 +453,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         RenderSystem.enableCull();
         RenderSystem.setShader(GameRenderer::getPositionTexProgram);
     }
+    
 
     /**
      * Computes a point on a Catmull–Rom spline given four control points and a parameter t in [0, 1].
