@@ -387,12 +387,13 @@ public class PathTrackerClientMod implements ClientModInitializer {
         List<List<BlockPos>> segments = new ArrayList<>();
         List<BlockPos> currentSegment = new ArrayList<>();
         currentSegment.add(visited.get(0));
+        int renderDistance = this.pathStorageSessions.getRenderDistance();
         for (int i = 1; i < visited.size(); i++) {
             BlockPos current = visited.get(i);
-            // If the current block is > 256 blocks away from the player, we dont need to render
+            // If the current block is > renderDistance blocks away from the player, we dont need to render
             // because its a waste of resources.
-            // simply x > 256 or y > 256 or z > 256, not really a distance check.
-            if (Math.abs(current.getX() - camPos.x) > 256 || Math.abs(current.getY() - camPos.y) > 256 || Math.abs(current.getZ() - camPos.z) > 256) {
+            // simply x > renderDistance or y > renderDistance or z > renderDistance, not really a distance check.
+            if (Math.abs(current.getX() - camPos.x) > renderDistance || Math.abs(current.getY() - camPos.y) > renderDistance || Math.abs(current.getZ() - camPos.z) > renderDistance) {
                 continue;
             }
             BlockPos prev = visited.get(i - 1);

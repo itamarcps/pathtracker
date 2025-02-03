@@ -38,6 +38,7 @@ public class PathStorageSessions {
     private float thickness = 0.2f;
     private int groupSize = 5;
     private int subdivisions = 16;
+    private int renderDistance = 256;
 
     // The file structure for PathStorageSessions:
     //  \CONFIG
@@ -78,6 +79,7 @@ public class PathStorageSessions {
                             obj.addProperty("thickness", 0.2f);
                             obj.addProperty("groupSize", 5);
                             obj.addProperty("subdivisions", 16);
+                            obj.addProperty("renderDistance", 256);
                             Gson gson = new GsonBuilder().setPrettyPrinting().create();
                             gson.toJson(obj, writer);
                         } catch (IOException e) {
@@ -136,6 +138,9 @@ public class PathStorageSessions {
             }
             if (obj.has("subdivisions")) {
                 this.subdivisions = obj.get("subdivisions").getAsInt();
+            }
+            if (obj.has("renderDistance")) {
+                this.renderDistance = obj.get("renderDistance").getAsInt();
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -229,6 +234,15 @@ public class PathStorageSessions {
         dumpSettings();
     }
 
+    public int getRenderDistance() {
+        return this.renderDistance;
+    }
+
+    public void setRenderDistance(int renderDistance) {
+        this.renderDistance = renderDistance;
+        dumpSettings();
+    }
+
     private void dumpSettings() {
         try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
             JsonObject obj = new JsonObject();
@@ -239,6 +253,7 @@ public class PathStorageSessions {
             obj.addProperty("thickness", this.thickness);
             obj.addProperty("groupSize", this.groupSize);
             obj.addProperty("subdivisions", this.subdivisions); 
+            obj.addProperty("renderDistance", this.renderDistance);
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             gson.toJson(obj, writer);
         } catch (IOException e) {
