@@ -4,14 +4,14 @@
 
 https://github.com/user-attachments/assets/c405e97b-5d06-47fe-81c7-416d9eb90bcb
 
-**PathTracker** is a Minecraft Fabric mod that enhances your exploration experience by visually tracking your movements across different dimensions. It overlays translucent colored cubes behind your player, allowing you to see the paths you've taken. Whether you're navigating the Overworld, exploring the Nether, or venturing into the End, PathTracker ensures you never lose your way.
+**PathTracker** is a Minecraft Fabric mod that enhances your exploration experience by visually tracking your movements across different dimensions. It overlays translucent colored lines behind your player, allowing you to see the paths you've taken. Whether you're navigating the Overworld, exploring the Nether, or venturing into the End, PathTracker ensures you never lose your way.
 
 ## Features
 
 - **Multi-Dimension Tracking**: Seamlessly track your paths across the Overworld, Nether, and End with separate tracking data for each dimension.
 - **Multiple Tracking Sessions**: Create, list, and switch between multiple tracking sessions to manage different exploration endeavors.
-- **Customizable Overlay Colors**: Choose your preferred color for the tracking cubes using hexadecimal color codes.
-- **Depth Override**: Toggle depth testing to control whether tracking cubes are rendered behind or on top of opaque blocks.
+- **Customizable Overlay Colors**: Choose your preferred color for the tracking lines using hexadecimal color codes.
+- **Depth Override**: Toggle depth testing to control whether tracking lines are rendered behind or on top of opaque blocks.
 - **Manual Save Command**: Save your tracked paths at any time without needing to exit the game.
 - **Key Bindings**: Quickly enable or disable tracking and rendering using customizable key bindings.
 
@@ -48,7 +48,7 @@ Once installed, PathTracker offers several commands and key bindings to manage t
 
 - **Toggle Rendering**:
   - **Default Key**: `L`
-  - **Function**: Show or hide the tracking cubes.
+  - **Function**: Show or hide the tracking lines.
 
 ### Commands
 
@@ -74,21 +74,21 @@ All commands are prefixed with `/pathtracker`.
 
 `/pathtracker render on`
 
-*Shows the tracking cubes in the world.*
+*Shows the tracking lines in the world.*
 
 - **Disable Rendering**:
 
 `/pathtracker render off`
 
-*Hides the tracking cubes.*
+*Hides the tracking lines.*
 
 #### 3. **Color Customization**
 
-- **Set Cube Color**:
+- **Set Line Color**:
 
 `/pathtracker color <hex>`
 
-*Changes the color of the tracking cubes.*
+*Changes the color of the tracking lines.*
 
 - **Parameters**:
   - `<hex>`: Hexadecimal color code (e.g., `FF0000` for red or `00FF00` for green).
@@ -96,7 +96,7 @@ All commands are prefixed with `/pathtracker`.
 - **Example**:
   `/pathtracker color 00FF00`
   
-  *Sets the tracking cubes to green.*
+  *Sets the tracking lines to green.*
 
 #### 4. **Save Path Data**
 
@@ -154,13 +154,13 @@ All commands are prefixed with `/pathtracker`.
 
 `/pathtracker depth on`
 
-*Renders tracking cubes on top of all blocks, ignoring depth.*
+*Renders tracking lines on top of all blocks, ignoring depth.*
 
 - **Disable Depth Override**:
 
 `/pathtracker depth off`
 
-*Respects depth, allowing cubes to be occluded by opaque blocks.*
+*Respects depth, allowing lines to be occluded by opaque blocks.*
 
 #### 7. **Transparency**
 
@@ -178,6 +178,55 @@ All commands are prefixed with `/pathtracker`.
   /pathtracker transparency 5000
   ```
 
+
+#### 8. **Mode Option**
+
+- **Mode: DEFAULT or GROUPED**
+
+`/pathtracker mode <mode>`
+
+*Set the mode to DEFAULT or GROUPED.*
+
+- **Parameters**:
+  - `<mode>`: mode to set (DEFAULT or GROUPED)
+
+- **Example**:
+  ```
+  /pathtracker mode GROUPED
+  ```
+
+#### 9. **Thickness Size**
+
+- **Set Thickness**
+
+`/pathtracker thickness <value>`
+
+*Set the thickness of the strip (0 to 100).*
+
+- **Parameters**:
+  - `<value>`: thickness value to set
+
+- **Example**:
+  ```
+  /pathtracker thickness 50
+  ```
+
+#### 10. **Render Distance**
+
+- **Render Distance**
+
+`/pathtracker renderdistance <value>`
+
+*Set the render distance of the strip (0 to 100).*
+
+- **Parameters**:
+  - `<value>`: render distance value to set
+
+- **Example**:
+  ```
+  /pathtracker renderdistance 512
+  ```
+
 ## Configuration
 
 PathTracker stores its data within the Minecraft configuration directory, organizing tracking data per session and dimension. The `PathStorageSessions` class manages multiple sessions, each with its own set of tracked positions across different dimensions.
@@ -185,7 +234,7 @@ PathTracker stores its data within the Minecraft configuration directory, organi
 ### Data Structure
 
 - **sessions.json**: Lists all available tracking sessions.
-- **settings.json**: Stores the current session and cube color settings.
+- **settings.json**: Stores the current session and line color settings.
 - **<session_name>**: Contains path data files for each dimension within the session.
 ```
 CONFIG

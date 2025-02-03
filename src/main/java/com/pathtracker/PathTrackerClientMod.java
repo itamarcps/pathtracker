@@ -275,7 +275,17 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             })
                         )
                     )
-
+                    // /pathtracker renderdistance <value>
+                    .then(literal("renderdistance")
+                        .then(argument("value", IntegerArgumentType.integer(1, 10000))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setRenderDistance(value);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Render distance set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
             );
         });
 
