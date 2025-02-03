@@ -25,11 +25,16 @@ import java.util.Map;
 
 
 public class PathStorageSessions {
+    static enum Modes {
+        DEFAULT,
+        GROUPED
+    }
     private final Path dataStoragePath;
     private HashSet<String> sessions;
     private String currentSession = "default";
     private String color = "0xFF0000";
     private float transparency = 0.4f;
+    private Modes mode = Modes.DEFAULT;
 
     // The file structure for PathStorageSessions:
     //  \CONFIG
@@ -66,6 +71,7 @@ public class PathStorageSessions {
                             obj.addProperty("currentSession", "default");
                             obj.addProperty("color", "0xFF0000");
                             obj.addProperty("transparency", 0.65f);
+                            obj.addProperty("mode", Modes.DEFAULT.toString());
                             Gson gson = new GsonBuilder().setPrettyPrinting().create();
                             gson.toJson(obj, writer);
                         } catch (IOException e) {
@@ -110,6 +116,9 @@ public class PathStorageSessions {
             }
             if (obj.has("transparency")) {
                 this.transparency = obj.get("transparency").getAsFloat();
+            }
+            if (obj.has("mode")) {
+                this.mode = Modes.valueOf(obj.get("mode").getAsString());
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -167,12 +176,22 @@ public class PathStorageSessions {
         dumpSettings();
     }
 
+    public Modes getMode() {
+        return this.mode;
+    }
+
+    public void setMode(Modes mode) {
+        this.mode = mode;
+        dumpSettings();
+    }
+
     private void dumpSettings() {
         try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
             JsonObject obj = new JsonObject();
             obj.addProperty("currentSession", this.currentSession);
             obj.addProperty("color", color);
             obj.addProperty("transparency", this.transparency);
+            obj.addProperty("mode", this.mode.toString());
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             gson.toJson(obj, writer);
         } catch (IOException e) {

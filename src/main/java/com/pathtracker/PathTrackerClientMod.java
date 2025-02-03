@@ -229,6 +229,19 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             })
                         )
                     )
+                    // /pathtracker mode default|grouped
+                    .then(literal("mode")
+                        .then(literal("default").executes(ctx -> {
+                            pathStorageSessions.setMode(PathStorageSessions.Modes.DEFAULT);
+                            ctx.getSource().sendFeedback(Text.literal("[PathTracker] Mode set to DEFAULT."));
+                            return 1;
+                        }))
+                        .then(literal("grouped").executes(ctx -> {
+                            pathStorageSessions.setMode(PathStorageSessions.Modes.GROUPED);
+                            ctx.getSource().sendFeedback(Text.literal("[PathTracker] Mode set to GROUPED."));
+                            return 1;
+                        }))
+                    )
             );
         });
 
@@ -340,109 +353,128 @@ public class PathTrackerClientMod implements ClientModInitializer {
         List<BlockPos> currentSegment = new ArrayList<>();
         currentSegment.add(visited.get(0));
         for (int i = 1; i < visited.size(); i++) {
-             BlockPos prev = visited.get(i - 1);
-             BlockPos current = visited.get(i);
-             if (areNeighbors(prev, current)) {
-                  currentSegment.add(current);
-             } else {
-                  if (currentSegment.size() >= 2) {
-                      segments.add(currentSegment);
-                  }
-                  currentSegment = new ArrayList<>();
-                  currentSegment.add(current);
-             }
-        }
-        if (currentSegment.size() >= 2) {
-             segments.add(currentSegment);
+            BlockPos prev = visited.get(i - 1);
+            BlockPos current = visited.get(i);
+            if (areNeighbors(prev, current)) {
+                currentSegment.add(current);
+            } else {
+                if (currentSegment.size() >= 2) {
+                    segments.add(currentSegment);
+                }
+                currentSegment = new ArrayList<>();
+                currentSegment.add(current);
+            }
+        } if (currentSegment.size() >= 2) {
+            segments.add(currentSegment);
         }
     
         final int subdivisions = 16; // adjust subdivisions per segment for smoothness
-        final double halfThickness = 0.2 / 2.0; // 10% block width
+        final double halfThickness = 0.2 / 2.0; // 20% block width
         float alpha = pathStorageSessions.getTransparency();
     
         // For each segment, generate a smooth curve and build its quad strip.
         for (List<BlockPos> segment : segments) {
-             // Convert block positions to their center positions.
-             List<Vec3d> centers = new ArrayList<>();
-             for (BlockPos pos : segment) {
-                  centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
-             }
-             
-             // --- Group consecutive centers in batches of up to 5 ---
-             List<Vec3d> groupedCenters = new ArrayList<>();
-             int groupSize = 5;
-             for (int i = 0; i < centers.size(); i += groupSize) {
-                 int end = Math.min(i + groupSize, centers.size());
-                 double sumX = 0, sumY = 0, sumZ = 0;
-                 for (int j = i; j < end; j++) {
-                     Vec3d p = centers.get(j);
-                     sumX += p.x;
-                     sumY += p.y;
-                     sumZ += p.z;
-                 }
-                 double count = end - i;
-                 groupedCenters.add(new Vec3d(sumX / count, sumY / count, sumZ / count));
-             }
-             // --- End grouping ---
-             
-             // Generate a smooth curve through the grouped centers using a Catmull–Rom spline.
-             List<Vec3d> curvePoints = new ArrayList<>();
-             if (groupedCenters.size() < 2) continue;
-             for (int i = 0; i < groupedCenters.size() - 1; i++) {
-                  Vec3d p0 = (i == 0) ? groupedCenters.get(i) : groupedCenters.get(i - 1);
-                  Vec3d p1 = groupedCenters.get(i);
-                  Vec3d p2 = groupedCenters.get(i + 1);
-                  Vec3d p3 = (i + 2 < groupedCenters.size()) ? groupedCenters.get(i + 2) : groupedCenters.get(i + 1);
-                  for (int j = 0; j < subdivisions; j++) {
-                       double t = j / (double) subdivisions;
-                       Vec3d pt = catmullRom(p0, p1, p2, p3, t);
-                       curvePoints.add(pt);
-                  }
-             }
-             // Ensure the final grouped center is added.
-             curvePoints.add(groupedCenters.get(groupedCenters.size() - 1));
+            // Convert block positions to their center positions.
+            List<Vec3d> centers = new ArrayList<>();
+            for (BlockPos pos : segment) {
+                 centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+            }
+
+            // Switch case getMode() (... GROUPED, DEFAULT)
+            List<Vec3d> curvePoints = new ArrayList<>();
+            switch (pathStorageSessions.getMode()) {
+                case DEFAULT:
+                    // Generate a smooth curve through the centers using a Catmull–Rom spline.
+                    if (centers.size() < 2) continue;
+                    for (int i = 0; i < centers.size() - 1; i++) {
+                         Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
+                         Vec3d p1 = centers.get(i);
+                         Vec3d p2 = centers.get(i + 1);
+                         Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
+                         for (int j = 0; j < subdivisions; j++) {
+                              double t = j / (double) subdivisions;
+                              Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                              curvePoints.add(pt);
+                         }
+                    }
+                    // Ensure the final center is added.
+                    curvePoints.add(centers.get(centers.size() - 1));
+                    break;
+                case GROUPED:
+                    // --- Group consecutive centers in batches of up to 5 ---
+                    List<Vec3d> groupedCenters = new ArrayList<>();
+                    int groupSize = 5;
+                    for (int i = 0; i < centers.size(); i += groupSize) {
+                        int end = Math.min(i + groupSize, centers.size());
+                        double sumX = 0, sumY = 0, sumZ = 0;
+                        for (int j = i; j < end; j++) {
+                            Vec3d p = centers.get(j);
+                            sumX += p.x;
+                            sumY += p.y;
+                            sumZ += p.z;
+                        }
+                        double count = end - i;
+                        groupedCenters.add(new Vec3d(sumX / count, sumY / count, sumZ / count));
+                    }
+                    // --- End grouping ---
+                    
+                    // Generate a smooth curve through the grouped centers using a Catmull–Rom spline.
+                    if (groupedCenters.size() < 2) continue;
+                    for (int i = 0; i < groupedCenters.size() - 1; i++) {
+                         Vec3d p0 = (i == 0) ? groupedCenters.get(i) : groupedCenters.get(i - 1);
+                         Vec3d p1 = groupedCenters.get(i);
+                         Vec3d p2 = groupedCenters.get(i + 1);
+                         Vec3d p3 = (i + 2 < groupedCenters.size()) ? groupedCenters.get(i + 2) : groupedCenters.get(i + 1);
+                         for (int j = 0; j < subdivisions; j++) {
+                              double t = j / (double) subdivisions;
+                              Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                              curvePoints.add(pt);
+                         }
+                    }
+                    // Ensure the final grouped center is added.
+                    curvePoints.add(groupedCenters.get(groupedCenters.size() - 1));
+                    break;
+            }
+
     
-             // Build a quad strip along the smooth curve for this segment.
-             for (int i = 0; i < curvePoints.size() - 1; i++) {
-                  Vec3d current = curvePoints.get(i);
-                  Vec3d next = curvePoints.get(i + 1);
-                  Vec3d tangent = next.subtract(current).normalize();
-    
-                  // Compute a perpendicular vector to the tangent (facing away from the camera)
-                  Vec3d toCam = current.subtract(camPos).normalize();
-                  Vec3d perp = tangent.crossProduct(toCam).normalize();
-                  Vec3d offset = perp.multiply(halfThickness);
-    
-                  Vec3d currentLeft = current.subtract(offset);
-                  Vec3d currentRight = current.add(offset);
-                  Vec3d nextLeft = next.subtract(offset);
-                  Vec3d nextRight = next.add(offset);
-    
-                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                      (float)(currentLeft.x - camPos.x),
-                      (float)(currentLeft.y - camPos.y),
-                      (float)(currentLeft.z - camPos.z))
-                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                            .next();
-                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                      (float)(currentRight.x - camPos.x),
-                      (float)(currentRight.y - camPos.y),
-                      (float)(currentRight.z - camPos.z))
-                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                            .next();
-                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                      (float)(nextRight.x - camPos.x),
-                      (float)(nextRight.y - camPos.y),
-                      (float)(nextRight.z - camPos.z))
-                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                            .next();
-                  buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                      (float)(nextLeft.x - camPos.x),
-                      (float)(nextLeft.y - camPos.y),
-                      (float)(nextLeft.z - camPos.z))
-                            .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                            .next();
-             }
+            // Build a quad strip along the smooth curve for this segment.
+            for (int i = 0; i < curvePoints.size() - 1; i++) {
+                 Vec3d current = curvePoints.get(i);
+                 Vec3d next = curvePoints.get(i + 1);
+                 Vec3d tangent = next.subtract(current).normalize();
+                     // Compute a perpendicular vector to the tangent (facing away from the camera)
+                 Vec3d toCam = current.subtract(camPos).normalize();
+                 Vec3d perp = tangent.crossProduct(toCam).normalize();
+                 Vec3d offset = perp.multiply(halfThickness);
+                     Vec3d currentLeft = current.subtract(offset);
+                 Vec3d currentRight = current.add(offset);
+                 Vec3d nextLeft = next.subtract(offset);
+                 Vec3d nextRight = next.add(offset);
+                     buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                     (float)(currentLeft.x - camPos.x),
+                     (float)(currentLeft.y - camPos.y),
+                     (float)(currentLeft.z - camPos.z))
+                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                           .next();
+                 buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                     (float)(currentRight.x - camPos.x),
+                     (float)(currentRight.y - camPos.y),
+                     (float)(currentRight.z - camPos.z))
+                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                           .next();
+                 buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                     (float)(nextRight.x - camPos.x),
+                     (float)(nextRight.y - camPos.y),
+                     (float)(nextRight.z - camPos.z))
+                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                           .next();
+                 buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                     (float)(nextLeft.x - camPos.x),
+                     (float)(nextLeft.y - camPos.y),
+                     (float)(nextLeft.z - camPos.z))
+                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                           .next();
+            }
         }
     
         tessellator.draw();
