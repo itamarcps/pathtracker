@@ -2,8 +2,6 @@
 
 <figure><img src=".github/pathtracker.png" alt=""><figcaption><p>PathTracker Example</p></figcaption></figure>
 
-https://github.com/user-attachments/assets/c405e97b-5d06-47fe-81c7-416d9eb90bcb
-
 **PathTracker** is a Minecraft Fabric mod that enhances your exploration experience by visually tracking your movements across different dimensions. It overlays translucent colored lines behind your player, allowing you to see the paths you've taken. Whether you're navigating the Overworld, exploring the Nether, or venturing into the End, PathTracker ensures you never lose your way.
 
 ## Features
