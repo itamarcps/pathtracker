@@ -1,9 +1,9 @@
 package com.pathtracker;
 
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -48,7 +48,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
 
     // Whether we’re currently tracking player movement
     private static boolean trackingEnabled = false;
-    // Whether we’re rendering the block overlays
+    // Whether we’re rendering the path overlay
     private static boolean renderingEnabled = false;
 
     // Overlay color components (defaults to red)
@@ -63,8 +63,8 @@ public class PathTrackerClientMod implements ClientModInitializer {
     private static KeyBinding toggleTrackingKey;
     private static KeyBinding toggleRenderingKey;
 
-    // Map to hold visited positions per dimension
-    private Map<RegistryKey<World>, HashSet<BlockPos>> visitedPositionsMap = new HashMap<>();
+    // Map to hold visited positions per dimension, stored as an ordered list.
+    private Map<RegistryKey<World>, List<BlockPos>> visitedPositionsMap = new HashMap<>();
     // Storage for path data (for everything)
     PathStorageSessions pathStorageSessions = new PathStorageSessions("pathtracer");
     private BlockPos lastTrackedPos = null;
@@ -74,7 +74,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
     public void onInitializeClient() {
         System.out.println("[PathTracker] onInitializeClient called!");
 
-        // Load from DB...
+        // Load color settings from storage...
         setCubeColorFromHex(pathStorageSessions.getColor());
 
         // ------------------------------------------------
@@ -219,7 +219,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             return 1;
                         }))
                     )
-                    .then(literal("transparency")
+                    .then(literal("transparency") 
                         .then(argument("value", IntegerArgumentType.integer(0, 10000))
                             .executes(ctx -> {
                                 int value = IntegerArgumentType.getInteger(ctx, "value");
@@ -229,15 +229,59 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             })
                         )
                     )
+                    // /pathtracker mode default|grouped
+                    .then(literal("mode")
+                        .then(literal("default").executes(ctx -> {
+                            pathStorageSessions.setMode(PathStorageSessions.Modes.DEFAULT);
+                            ctx.getSource().sendFeedback(Text.literal("[PathTracker] Mode set to DEFAULT."));
+                            return 1;
+                        }))
+                        .then(literal("grouped").executes(ctx -> {
+                            pathStorageSessions.setMode(PathStorageSessions.Modes.GROUPED);
+                            ctx.getSource().sendFeedback(Text.literal("[PathTracker] Mode set to GROUPED."));
+                            return 1;
+                        }))
+                    )
+                    // /pathtracker thickness <value>
+                    .then(literal("thickness")
+                        .then(argument("value", IntegerArgumentType.integer(1, 100))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setThickness(value / 100.0f);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Thickness set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
+                    // /pathtracker groupsize <value>
+                    .then(literal("groupsize")
+                        .then(argument("value", IntegerArgumentType.integer(1, 10000))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setGroupSize(value);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Group size set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
+                    // /pathtracker subdivisions <value>
+                    .then(literal("subdivisions")
+                        .then(argument("value", IntegerArgumentType.integer(1, 10000))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setSubdivisions(value);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Subdivisions set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
+
             );
         });
 
         System.out.println("[PathTracker] onInitializeClient complete.");
     }
 
-    /**
-     * Handles client tick events to manage key bindings and track player movement.
-     */
     private void onEndClientTick(MinecraftClient client) {
         // Toggle tracking if key pressed
         if (toggleTrackingKey.wasPressed()) {
@@ -265,7 +309,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
             mapName = client.getCurrentServerEntry().address;
         }
 
-        // Initialize storage for the current dimension if not present
+        // Initialize storage for the current map if not present or if the map has switched
         if (this.currentMap == null || !this.currentMap.equals(mapName)) {
             this.currentMap = mapName;
             this.visitedPositionsMap = pathStorageSessions.load(pathStorageSessions.getCurrentSession(), this.currentMap);
@@ -277,11 +321,13 @@ public class PathTrackerClientMod implements ClientModInitializer {
 
         // If not tracking, skip
         if (!trackingEnabled) return;
-        // If no player or world, skip
         if (client.player == null || client.world == null) return;
 
         // Track the block one behind the player
         BlockPos behindPos = getBlockBehindPlayer(client.player);
+
+        // Ensure we have a list for the current dimension
+        visitedPositionsMap.computeIfAbsent(currentDimension, key -> new ArrayList<>());
 
         if (!behindPos.equals(lastTrackedPos)) {
             visitedPositionsMap.get(currentDimension).add(behindPos);
@@ -289,221 +335,313 @@ public class PathTrackerClientMod implements ClientModInitializer {
         }
     }
 
-    /**
-     * Calculates the block position one block behind the player based on their facing direction.
-     *
-     * @param player The player entity.
-     * @return The BlockPos one block behind the player.
-     */
     private BlockPos getBlockBehindPlayer(net.minecraft.entity.player.PlayerEntity player) {
-        // Get the direction the player is facing
         Direction facing = player.getHorizontalFacing();
-
-        // Get the block position one block behind the player
         BlockPos currentPos = player.getBlockPos();
-        BlockPos behindPos = currentPos.offset(facing.getOpposite());
-
-        return behindPos;
+        return currentPos.offset(facing.getOpposite());
     }
 
     /**
-     * Renders each visited position as a small, translucent cube with a custom color.
+     * Renders the visited path as a smooth, thick curved line.
      */
     private void onWorldRender(WorldRenderContext context) {
         if (!renderingEnabled) return;
-
-        // Optional: Uncomment for debugging to ensure this method is being called
-        // System.out.println("[PathTracker] onWorldRender called, drawing overlays!");
-
+    
         MatrixStack matrixStack = context.matrixStack();
         Camera camera = context.camera();
         Vec3d camPos = camera.getPos();
-
-        // Use the simple position + color shader
+    
+        // Use the simple position+color shader.
         RenderSystem.setShader(() -> context.gameRenderer().getPositionColorProgram());
-
-        // Enable necessary OpenGL states for transparency
         RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc(); // Equivalent to GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA
-
-
+        RenderSystem.defaultBlendFunc();
+    
         if (!depthOverride) {
-            // Enable depth testing to ensure correct occlusion by opaque blocks
             RenderSystem.enableDepthTest();
-            // Prevent the cubes from writing to the depth buffer
             RenderSystem.depthMask(false);
         } else {
-            // Disable depth testing to render on top of everything
             RenderSystem.disableDepthTest();
         }
-
-        // Optionally, disable face culling to ensure all faces are rendered
         RenderSystem.disableCull();
-
+    
         Tessellator tessellator = Tessellator.getInstance();
         BufferBuilder buffer = tessellator.getBuffer();
-
-        // Use the simplified vertex format: POSITION_COLOR
         buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-
-        // Define cube size and offset to center the cube within the block
-        float cubeSize = 0.6f;
-        float offset = (1.0f - cubeSize) / 2.0f; // Center the smaller cube
-
-        // Get current dimension
+    
+        // Get the current dimension and its visited block centers.
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
-
-        // Get the set for the current dimension
-        HashSet<BlockPos> currentVisited = visitedPositionsMap.get(currentDimension);
-        if (currentVisited == null || currentVisited.isEmpty()) {
-            // No positions to render
+        List<BlockPos> visited = visitedPositionsMap.get(currentDimension);
+        if (visited == null || visited.size() == 0) {
             tessellator.draw();
-            // Re-enable depth writing and face culling after rendering
             if (!depthOverride) {
                 RenderSystem.disableDepthTest();
                 RenderSystem.depthMask(true);
             }
             RenderSystem.enableCull();
-            // Optional: Reset shader to default after rendering
             RenderSystem.setShader(GameRenderer::getPositionTexProgram);
             return;
         }
-
-        for (BlockPos pos : currentVisited) {
-            double x = pos.getX() - camPos.x;
-            double y = pos.getY() - camPos.y;
-            double z = pos.getZ() - camPos.z;
-            // Skip blocks that are > 256 blocks away
-            if (Math.abs(x) > 256 || Math.abs(y) > 256 || Math.abs(z) > 256) {
+    
+        // Split visited positions into segments whenever the next block isn’t a neighbor.
+        // (We add all segments—even those with a single block—to allow cube rendering.)
+        List<List<BlockPos>> segments = new ArrayList<>();
+        List<BlockPos> currentSegment = new ArrayList<>();
+        currentSegment.add(visited.get(0));
+        int renderDistance = this.pathStorageSessions.getRenderDistance();
+        for (int i = 1; i < visited.size(); i++) {
+            BlockPos current = visited.get(i);
+            // If the current block is > renderDistance blocks away from the player, we dont need to render
+            // because its a waste of resources.
+            // simply x > renderDistance or y > renderDistance or z > renderDistance, not really a distance check.
+            if (Math.abs(current.getX() - camPos.x) > renderDistance || Math.abs(current.getY() - camPos.y) > renderDistance || Math.abs(current.getZ() - camPos.z) > renderDistance) {
                 continue;
             }
-            double xMin = x + offset;
-            double xMax = x + offset + cubeSize;
-            double yMin = y + offset;
-            double yMax = y + offset + cubeSize;
-            double zMin = z + offset;
-            double zMax = z + offset + cubeSize;
-
-            float red = cubeRed;
-            float green = cubeGreen;
-            float blue = cubeBlue;
-            float alpha = pathStorageSessions.getTransparency();
-
-            // FRONT FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // BACK FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // LEFT FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // RIGHT FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // BOTTOM FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-
-            // TOP FACE
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
-            buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                  .color(red, green, blue, alpha)
-                  .next();
+            BlockPos prev = visited.get(i - 1);
+            if (areNeighbors(prev, current)) {
+                currentSegment.add(current);
+            } else {
+                segments.add(currentSegment);
+                currentSegment = new ArrayList<>();
+                currentSegment.add(current);
+            }
         }
-
+        segments.add(currentSegment);
+    
+        final int subdivisions = this.pathStorageSessions.getSubdivisions();
+        final double thickness = this.pathStorageSessions.getThickness();
+        float alpha = pathStorageSessions.getTransparency();
+    
+        // Process each segment.
+        for (List<BlockPos> segment : segments) {
+            // If the segment contains less than two blocks, render using the old cube code.
+            if (segment.size() < 2) {
+                // Define cube size and offset to center the cube within the block
+                float cubeSize = 0.6f;
+                float offset = (1.0f - cubeSize) / 2.0f; // Center the smaller cube
+                for (BlockPos pos : segment) {
+                    // Compute the block's center position.
+                    double centerX = pos.getX() + 0.5;
+                    double centerY = pos.getY() + 0.5;
+                    double centerZ = pos.getZ() + 0.5;
+                    double x = centerX - camPos.x;
+                    double y = centerY - camPos.y;
+                    double z = centerZ - camPos.z;
+                    double xMin = x + offset;
+                    double xMax = x + offset + cubeSize;
+                    double yMin = y + offset;
+                    double yMax = y + offset + cubeSize;
+                    double zMin = z + offset;
+                    double zMax = z + offset + cubeSize;
+    
+                    float red = cubeRed;
+                    float green = cubeGreen;
+                    float blue = cubeBlue;
+                    float cubeAlpha = alpha / 2.0f;
+                    // Render all 6 faces of the cube:
+                    // FRONT FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // BACK FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // LEFT FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // RIGHT FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // BOTTOM FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // TOP FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                }
+                continue; // Move to the next segment.
+            }
+    
+            // Otherwise, for segments with two or more blocks, use spline (quad strip) rendering.
+            List<Vec3d> centers = new ArrayList<>();
+            for (BlockPos pos : segment) {
+                centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+            }
+            List<Vec3d> curvePoints = new ArrayList<>();
+            switch (pathStorageSessions.getMode()) {
+                case DEFAULT:
+                    // Generate a smooth curve through the centers using a Catmull–Rom spline.
+                    for (int i = 0; i < centers.size() - 1; i++) {
+                        Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
+                        Vec3d p1 = centers.get(i);
+                        Vec3d p2 = centers.get(i + 1);
+                        Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
+                        for (int j = 0; j < subdivisions; j++) {
+                            double t = j / (double) subdivisions;
+                            Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                            curvePoints.add(pt);
+                        }
+                    }
+                    // Ensure the final center is added.
+                    curvePoints.add(centers.get(centers.size() - 1));
+                    break;
+                case GROUPED:
+                    List<Vec3d> groupedCenters = new ArrayList<>();
+                    int groupSize = pathStorageSessions.getGroupSize();
+                    for (int i = 0; i < centers.size(); i += groupSize) {
+                        int end = Math.min(i + groupSize, centers.size());
+                        double sumX = 0, sumY = 0, sumZ = 0;
+                        for (int j = i; j < end; j++) {
+                            Vec3d p = centers.get(j);
+                            sumX += p.x;
+                            sumY += p.y;
+                            sumZ += p.z;
+                        }
+                        double count = end - i;
+                        groupedCenters.add(new Vec3d(sumX / count, sumY / count, sumZ / count));
+                    }
+                    // --- End grouping ---
+                    if (groupedCenters.size() < 2) continue;
+                    for (int i = 0; i < groupedCenters.size() - 1; i++) {
+                        Vec3d p0 = (i == 0) ? groupedCenters.get(i) : groupedCenters.get(i - 1);
+                        Vec3d p1 = groupedCenters.get(i);
+                        Vec3d p2 = groupedCenters.get(i + 1);
+                        Vec3d p3 = (i + 2 < groupedCenters.size()) ? groupedCenters.get(i + 2) : groupedCenters.get(i + 1);
+                        for (int j = 0; j < subdivisions; j++) {
+                            double t = j / (double) subdivisions;
+                            Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                            curvePoints.add(pt);
+                        }
+                    }
+                    // Ensure the final grouped center is added.
+                    curvePoints.add(groupedCenters.get(groupedCenters.size() - 1));
+                    break;
+            }
+    
+            // Build a quad strip along the smooth curve for this segment.
+            for (int i = 0; i < curvePoints.size() - 1; i++) {
+                Vec3d current = curvePoints.get(i);
+                Vec3d next = curvePoints.get(i + 1);
+                Vec3d tangent = next.subtract(current).normalize();
+                // Compute a perpendicular vector to the tangent (facing away from the camera)
+                Vec3d toCam = current.subtract(camPos).normalize();
+                Vec3d perp = tangent.crossProduct(toCam).normalize();
+                Vec3d offsetVec = perp.multiply(thickness);
+                Vec3d currentLeft = current.subtract(offsetVec);
+                Vec3d currentRight = current.add(offsetVec);
+                Vec3d nextLeft = next.subtract(offsetVec);
+                Vec3d nextRight = next.add(offsetVec);
+    
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(currentLeft.x - camPos.x),
+                    (float)(currentLeft.y - camPos.y),
+                    (float)(currentLeft.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(currentRight.x - camPos.x),
+                    (float)(currentRight.y - camPos.y),
+                    (float)(currentRight.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(nextRight.x - camPos.x),
+                    (float)(nextRight.y - camPos.y),
+                    (float)(nextRight.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(nextLeft.x - camPos.x),
+                    (float)(nextLeft.y - camPos.y),
+                    (float)(nextLeft.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+            }
+        }
+    
         tessellator.draw();
-
-        // Re-enable depth writing and face culling after rendering
         if (!depthOverride) {
             RenderSystem.disableDepthTest();
             RenderSystem.depthMask(true);
         }
         RenderSystem.enableCull();
-
-        // Optional: Reset shader to default after rendering
         RenderSystem.setShader(GameRenderer::getPositionTexProgram);
+    }
+    
+    
+
+    /**
+     * Computes a point on a Catmull–Rom spline given four control points and a parameter t in [0, 1].
+     *
+     * The formula is:  
+     * 0.5 * [2P1 + (P2 – P0)t + (2P0 – 5P1 + 4P2 – P3)t² + (–P0 + 3P1 – 3P2 + P3)t³]
+     */
+    private Vec3d catmullRom(Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, double t) {
+        double t2 = t * t;
+        double t3 = t2 * t;
+        Vec3d term1 = p1.multiply(2.0);
+        Vec3d term2 = p2.subtract(p0).multiply(t);
+        Vec3d term3 = p0.multiply(2.0).subtract(p1.multiply(5.0)).add(p2.multiply(4.0)).subtract(p3).multiply(t2);
+        Vec3d term4 = p0.negate().add(p1.multiply(3.0)).subtract(p2.multiply(3.0)).add(p3).multiply(t3);
+        return term1.add(term2).add(term3).add(term4).multiply(0.5);
     }
 
     /**
-     * Saves all path data for all dimensions.
+     * Returns true if the two block positions are adjacent in every axis.
      */
+    private boolean areNeighbors(BlockPos a, BlockPos b) {
+        // 2 Steps in any direction (including diagonals)
+        return Math.abs(a.getX() - b.getX()) <= 2 &&
+               Math.abs(a.getY() - b.getY()) <= 2 &&
+               Math.abs(a.getZ() - b.getZ()) <= 2;
+    }
+
     private void saveAllPathData() {
         System.out.println("[PathTracker] Saving all path data...");
-        // print to console currentSession and mapName for debugging
         System.out.println("[PathTracker] Saving Current session: " + pathStorageSessions.getCurrentSession());
         System.out.println("[PathTracker] Saving Map name: " + this.currentMap);
         pathStorageSessions.save(pathStorageSessions.getCurrentSession(), this.currentMap, visitedPositionsMap);
     }
 
-    /**
-     * Parses and sets the overlay color from a hex string (#RRGGBB or RRGGBB).
-     *
-     * @param rawHex The hex color string.
-     * @return True if the color was set successfully, false otherwise.
-     */
     private static boolean setCubeColorFromHex(String rawHex) {
         if (rawHex.startsWith("#")) {
             rawHex = rawHex.substring(1);
