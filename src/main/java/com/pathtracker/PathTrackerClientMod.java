@@ -324,6 +324,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
      */
     private void onWorldRender(WorldRenderContext context) {
         if (!renderingEnabled) return;
+    
         MatrixStack matrixStack = context.matrixStack();
         Camera camera = context.camera();
         Vec3d camPos = camera.getPos();
@@ -348,7 +349,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         // Get the current dimension and its visited block centers.
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
         List<BlockPos> visited = visitedPositionsMap.get(currentDimension);
-        if (visited == null || visited.size() < 2) {
+        if (visited == null || visited.size() == 0) {
             tessellator.draw();
             if (!depthOverride) {
                 RenderSystem.disableDepthTest();
@@ -360,53 +361,142 @@ public class PathTrackerClientMod implements ClientModInitializer {
         }
     
         // Split visited positions into segments whenever the next block isn’t a neighbor.
+        // (We add all segments—even those with a single block—to allow cube rendering.)
         List<List<BlockPos>> segments = new ArrayList<>();
         List<BlockPos> currentSegment = new ArrayList<>();
         currentSegment.add(visited.get(0));
         for (int i = 1; i < visited.size(); i++) {
-            BlockPos prev = visited.get(i - 1);
             BlockPos current = visited.get(i);
+            // If the current block is > 256 blocks away from the player, we dont need to render
+            // because its a waste of resources.
+            // simply x > 256 or y > 256 or z > 256, not really a distance check.
+            if (Math.abs(current.getX() - camPos.x) > 256 || Math.abs(current.getY() - camPos.y) > 256 || Math.abs(current.getZ() - camPos.z) > 256) {
+                continue;
+            }
+            BlockPos prev = visited.get(i - 1);
             if (areNeighbors(prev, current)) {
                 currentSegment.add(current);
             } else {
-                if (currentSegment.size() >= 2) {
-                    segments.add(currentSegment);
-                }
+                segments.add(currentSegment);
                 currentSegment = new ArrayList<>();
                 currentSegment.add(current);
             }
-        } if (currentSegment.size() >= 2) {
-            segments.add(currentSegment);
         }
+        segments.add(currentSegment);
     
         final int subdivisions = 16; // adjust subdivisions per segment for smoothness
         final double thickness = this.pathStorageSessions.getThickness();
         float alpha = pathStorageSessions.getTransparency();
     
-        // For each segment, generate a smooth curve and build its quad strip.
+        // Process each segment.
         for (List<BlockPos> segment : segments) {
-            // Convert block positions to their center positions.
+            // If the segment contains less than two blocks, render using the old cube code.
+            if (segment.size() < 2) {
+                // Define cube size and offset to center the cube within the block
+                float cubeSize = 0.6f;
+                float offset = (1.0f - cubeSize) / 2.0f; // Center the smaller cube
+                for (BlockPos pos : segment) {
+                    // Compute the block's center position.
+                    double centerX = pos.getX() + 0.5;
+                    double centerY = pos.getY() + 0.5;
+                    double centerZ = pos.getZ() + 0.5;
+                    double x = centerX - camPos.x;
+                    double y = centerY - camPos.y;
+                    double z = centerZ - camPos.z;
+                    double xMin = x + offset;
+                    double xMax = x + offset + cubeSize;
+                    double yMin = y + offset;
+                    double yMax = y + offset + cubeSize;
+                    double zMin = z + offset;
+                    double zMax = z + offset + cubeSize;
+    
+                    float red = cubeRed;
+                    float green = cubeGreen;
+                    float blue = cubeBlue;
+                    float cubeAlpha = alpha / 2.0f;
+                    // Render all 6 faces of the cube:
+                    // FRONT FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // BACK FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // LEFT FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // RIGHT FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // BOTTOM FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // TOP FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                }
+                continue; // Move to the next segment.
+            }
+    
+            // Otherwise, for segments with two or more blocks, use spline (quad strip) rendering.
             List<Vec3d> centers = new ArrayList<>();
             for (BlockPos pos : segment) {
-                 centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+                centers.add(new Vec3d(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
             }
-
-            // Switch case getMode() (... GROUPED, DEFAULT)
             List<Vec3d> curvePoints = new ArrayList<>();
             switch (pathStorageSessions.getMode()) {
                 case DEFAULT:
                     // Generate a smooth curve through the centers using a Catmull–Rom spline.
-                    if (centers.size() < 2) continue;
                     for (int i = 0; i < centers.size() - 1; i++) {
-                         Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
-                         Vec3d p1 = centers.get(i);
-                         Vec3d p2 = centers.get(i + 1);
-                         Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
-                         for (int j = 0; j < subdivisions; j++) {
-                              double t = j / (double) subdivisions;
-                              Vec3d pt = catmullRom(p0, p1, p2, p3, t);
-                              curvePoints.add(pt);
-                         }
+                        Vec3d p0 = (i == 0) ? centers.get(i) : centers.get(i - 1);
+                        Vec3d p1 = centers.get(i);
+                        Vec3d p2 = centers.get(i + 1);
+                        Vec3d p3 = (i + 2 < centers.size()) ? centers.get(i + 2) : centers.get(i + 1);
+                        for (int j = 0; j < subdivisions; j++) {
+                            double t = j / (double) subdivisions;
+                            Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                            curvePoints.add(pt);
+                        }
                     }
                     // Ensure the final center is added.
                     curvePoints.add(centers.get(centers.size() - 1));
@@ -428,74 +518,73 @@ public class PathTrackerClientMod implements ClientModInitializer {
                         groupedCenters.add(new Vec3d(sumX / count, sumY / count, sumZ / count));
                     }
                     // --- End grouping ---
-                    
-                    // Generate a smooth curve through the grouped centers using a Catmull–Rom spline.
                     if (groupedCenters.size() < 2) continue;
                     for (int i = 0; i < groupedCenters.size() - 1; i++) {
-                         Vec3d p0 = (i == 0) ? groupedCenters.get(i) : groupedCenters.get(i - 1);
-                         Vec3d p1 = groupedCenters.get(i);
-                         Vec3d p2 = groupedCenters.get(i + 1);
-                         Vec3d p3 = (i + 2 < groupedCenters.size()) ? groupedCenters.get(i + 2) : groupedCenters.get(i + 1);
-                         for (int j = 0; j < subdivisions; j++) {
-                              double t = j / (double) subdivisions;
-                              Vec3d pt = catmullRom(p0, p1, p2, p3, t);
-                              curvePoints.add(pt);
-                         }
+                        Vec3d p0 = (i == 0) ? groupedCenters.get(i) : groupedCenters.get(i - 1);
+                        Vec3d p1 = groupedCenters.get(i);
+                        Vec3d p2 = groupedCenters.get(i + 1);
+                        Vec3d p3 = (i + 2 < groupedCenters.size()) ? groupedCenters.get(i + 2) : groupedCenters.get(i + 1);
+                        for (int j = 0; j < subdivisions; j++) {
+                            double t = j / (double) subdivisions;
+                            Vec3d pt = catmullRom(p0, p1, p2, p3, t);
+                            curvePoints.add(pt);
+                        }
                     }
                     // Ensure the final grouped center is added.
                     curvePoints.add(groupedCenters.get(groupedCenters.size() - 1));
                     break;
             }
-
     
             // Build a quad strip along the smooth curve for this segment.
             for (int i = 0; i < curvePoints.size() - 1; i++) {
-                 Vec3d current = curvePoints.get(i);
-                 Vec3d next = curvePoints.get(i + 1);
-                 Vec3d tangent = next.subtract(current).normalize();
-                     // Compute a perpendicular vector to the tangent (facing away from the camera)
-                 Vec3d toCam = current.subtract(camPos).normalize();
-                 Vec3d perp = tangent.crossProduct(toCam).normalize();
-                 Vec3d offset = perp.multiply(thickness);
-                     Vec3d currentLeft = current.subtract(offset);
-                 Vec3d currentRight = current.add(offset);
-                 Vec3d nextLeft = next.subtract(offset);
-                 Vec3d nextRight = next.add(offset);
-                     buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                     (float)(currentLeft.x - camPos.x),
-                     (float)(currentLeft.y - camPos.y),
-                     (float)(currentLeft.z - camPos.z))
-                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                           .next();
-                 buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                     (float)(currentRight.x - camPos.x),
-                     (float)(currentRight.y - camPos.y),
-                     (float)(currentRight.z - camPos.z))
-                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                           .next();
-                 buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                     (float)(nextRight.x - camPos.x),
-                     (float)(nextRight.y - camPos.y),
-                     (float)(nextRight.z - camPos.z))
-                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                           .next();
-                 buffer.vertex(matrixStack.peek().getPositionMatrix(),
-                     (float)(nextLeft.x - camPos.x),
-                     (float)(nextLeft.y - camPos.y),
-                     (float)(nextLeft.z - camPos.z))
-                           .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                           .next();
+                Vec3d current = curvePoints.get(i);
+                Vec3d next = curvePoints.get(i + 1);
+                Vec3d tangent = next.subtract(current).normalize();
+                // Compute a perpendicular vector to the tangent (facing away from the camera)
+                Vec3d toCam = current.subtract(camPos).normalize();
+                Vec3d perp = tangent.crossProduct(toCam).normalize();
+                Vec3d offsetVec = perp.multiply(thickness);
+                Vec3d currentLeft = current.subtract(offsetVec);
+                Vec3d currentRight = current.add(offsetVec);
+                Vec3d nextLeft = next.subtract(offsetVec);
+                Vec3d nextRight = next.add(offsetVec);
+    
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(currentLeft.x - camPos.x),
+                    (float)(currentLeft.y - camPos.y),
+                    (float)(currentLeft.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(currentRight.x - camPos.x),
+                    (float)(currentRight.y - camPos.y),
+                    (float)(currentRight.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(nextRight.x - camPos.x),
+                    (float)(nextRight.y - camPos.y),
+                    (float)(nextRight.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
+                    (float)(nextLeft.x - camPos.x),
+                    (float)(nextLeft.y - camPos.y),
+                    (float)(nextLeft.z - camPos.z))
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
             }
         }
     
         tessellator.draw();
         if (!depthOverride) {
-             RenderSystem.disableDepthTest();
-             RenderSystem.depthMask(true);
+            RenderSystem.disableDepthTest();
+            RenderSystem.depthMask(true);
         }
         RenderSystem.enableCull();
         RenderSystem.setShader(GameRenderer::getPositionTexProgram);
     }
+    
     
 
     /**
