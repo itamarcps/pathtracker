@@ -253,6 +253,28 @@ public class PathTrackerClientMod implements ClientModInitializer {
                             })
                         )
                     )
+                    // /pathtracker groupsize <value>
+                    .then(literal("groupsize")
+                        .then(argument("value", IntegerArgumentType.integer(1, 10000))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setGroupSize(value);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Group size set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
+                    // /pathtracker subdivisions <value>
+                    .then(literal("subdivisions")
+                        .then(argument("value", IntegerArgumentType.integer(1, 10000))
+                            .executes(ctx -> {
+                                int value = IntegerArgumentType.getInteger(ctx, "value");
+                                pathStorageSessions.setSubdivisions(value);
+                                ctx.getSource().sendFeedback(Text.literal("[PathTracker] Subdivisions set to " + value));
+                                return 1;
+                            })
+                        )
+                    )
 
             );
         });
@@ -384,7 +406,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         }
         segments.add(currentSegment);
     
-        final int subdivisions = 16; // adjust subdivisions per segment for smoothness
+        final int subdivisions = this.pathStorageSessions.getSubdivisions();
         final double thickness = this.pathStorageSessions.getThickness();
         float alpha = pathStorageSessions.getTransparency();
     
@@ -502,9 +524,8 @@ public class PathTrackerClientMod implements ClientModInitializer {
                     curvePoints.add(centers.get(centers.size() - 1));
                     break;
                 case GROUPED:
-                    // --- Group consecutive centers in batches of up to 5 ---
                     List<Vec3d> groupedCenters = new ArrayList<>();
-                    int groupSize = 5;
+                    int groupSize = pathStorageSessions.getGroupSize();
                     for (int i = 0; i < centers.size(); i += groupSize) {
                         int end = Math.min(i + groupSize, centers.size());
                         double sumX = 0, sumY = 0, sumZ = 0;

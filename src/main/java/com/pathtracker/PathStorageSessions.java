@@ -36,6 +36,8 @@ public class PathStorageSessions {
     private float transparency = 0.4f;
     private Modes mode = Modes.GROUPED;
     private float thickness = 0.2f;
+    private int groupSize = 5;
+    private int subdivisions = 16;
 
     // The file structure for PathStorageSessions:
     //  \CONFIG
@@ -74,6 +76,8 @@ public class PathStorageSessions {
                             obj.addProperty("transparency", 0.65f);
                             obj.addProperty("mode", Modes.GROUPED.toString());
                             obj.addProperty("thickness", 0.2f);
+                            obj.addProperty("groupSize", 5);
+                            obj.addProperty("subdivisions", 16);
                             Gson gson = new GsonBuilder().setPrettyPrinting().create();
                             gson.toJson(obj, writer);
                         } catch (IOException e) {
@@ -124,6 +128,12 @@ public class PathStorageSessions {
             }
             if (obj.has("thickness")) {
                 this.thickness = obj.get("thickness").getAsFloat();
+            }
+            if (obj.has("groupSize")) {
+                this.groupSize = obj.get("groupSize").getAsInt();
+            }
+            if (obj.has("subdivisions")) {
+                this.subdivisions = obj.get("subdivisions").getAsInt();
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -199,6 +209,24 @@ public class PathStorageSessions {
         dumpSettings();
     }
 
+    public int getGroupSize() {
+        return this.groupSize;
+    }
+
+    public void setGroupSize(int groupSize) {
+        this.groupSize = groupSize;
+        dumpSettings();
+    }
+
+    public int getSubdivisions() {
+        return this.subdivisions;
+    }
+
+    public void setSubdivisions(int subdivisions) {
+        this.subdivisions = subdivisions;
+        dumpSettings();
+    }
+
     private void dumpSettings() {
         try (Writer writer = Files.newBufferedWriter(dataStoragePath.resolve("settings.json"))) {
             JsonObject obj = new JsonObject();
@@ -207,6 +235,8 @@ public class PathStorageSessions {
             obj.addProperty("transparency", this.transparency);
             obj.addProperty("mode", this.mode.toString());
             obj.addProperty("thickness", this.thickness);
+            obj.addProperty("groupSize", this.groupSize);
+            obj.addProperty("subdivisions", this.subdivisions); 
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             gson.toJson(obj, writer);
         } catch (IOException e) {
