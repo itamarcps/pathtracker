@@ -427,21 +427,26 @@ public class PathTrackerClientMod implements ClientModInitializer {
             if (segment.size() < 2) {
                 // Define cube size and offset to center the cube within the block
                 float cubeSize = 0.6f;
-                float offset = (1.0f - cubeSize) / 2.0f; // Center the smaller cube
+                float halfSize = cubeSize / 2.0f;  // 0.3
+                
                 for (BlockPos pos : segment) {
-                    // Compute the block's center position.
+                    // Block center in world space
                     double centerX = pos.getX() + 0.5;
                     double centerY = pos.getY() + 0.5;
                     double centerZ = pos.getZ() + 0.5;
+                
+                    // Convert to camera-relative coordinates
                     double x = centerX - camPos.x;
                     double y = centerY - camPos.y;
                     double z = centerZ - camPos.z;
-                    double xMin = x + offset;
-                    double xMax = x + offset + cubeSize;
-                    double yMin = y + offset;
-                    double yMax = y + offset + cubeSize;
-                    double zMin = z + offset;
-                    double zMax = z + offset + cubeSize;
+                
+                    // Now define the bounding box around that point
+                    double xMin = x - halfSize;
+                    double xMax = x + halfSize;
+                    double yMin = y - halfSize;
+                    double yMax = y + halfSize;
+                    double zMin = z - halfSize;
+                    double zMax = z + halfSize;
     
                     float red = cubeRed;
                     float green = cubeGreen;
