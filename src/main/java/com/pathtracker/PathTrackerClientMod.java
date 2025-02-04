@@ -23,14 +23,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.render.BufferBuilder;
-import net.minecraft.client.render.BufferRenderer;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
-import net.minecraft.client.gl.ShaderProgram;
-import net.minecraft.client.gl.ShaderProgramKeys;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.server.integrated.IntegratedServer;
@@ -365,7 +362,7 @@ public class PathTrackerClientMod implements ClientModInitializer {
         Vec3d camPos = camera.getPos();
     
         // Use the simple position+color shader.
-        RenderSystem.setShader(ShaderProgramKeys.POSITION_COLOR);
+        RenderSystem.setShader(() -> context.gameRenderer().getPositionColorProgram());
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
     
@@ -378,19 +375,20 @@ public class PathTrackerClientMod implements ClientModInitializer {
         RenderSystem.disableCull();
     
         Tessellator tessellator = Tessellator.getInstance();
-        BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-        boolean emptyBuffer = true;
+        BufferBuilder buffer = tessellator.getBuffer();
+        buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
     
         // Get the current dimension and its visited block centers.
         RegistryKey<World> currentDimension = MinecraftClient.getInstance().world.getRegistryKey();
         List<BlockPos> visited = visitedPositionsMap.get(currentDimension);
         if (visited == null || visited.size() == 0) {
+            tessellator.draw();
             if (!depthOverride) {
                 RenderSystem.disableDepthTest();
                 RenderSystem.depthMask(true);
             }
             RenderSystem.enableCull();
-            RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);
+            RenderSystem.setShader(GameRenderer::getPositionTexProgram);
             return;
         }
     
@@ -454,65 +452,66 @@ public class PathTrackerClientMod implements ClientModInitializer {
                     float green = cubeGreen;
                     float blue = cubeBlue;
                     float cubeAlpha = alpha / 2.0f;
-                    emptyBuffer = false;
                     // Render all 6 faces of the cube:
                     // FRONT FACE
                     buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+    
+                    // BACK FACE
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
     
                     // LEFT FACE
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
     
                     // RIGHT FACE
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
     
                     // BOTTOM FACE
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMin, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
     
                     // TOP FACE
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
-                          .color(red, green, blue, cubeAlpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
-                          .color(red, green, blue, cubeAlpha);
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMax)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMax, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
+                    buffer.vertex(matrixStack.peek().getPositionMatrix(), (float)xMin, (float)yMax, (float)zMin)
+                          .color(red, green, blue, cubeAlpha).next();
                 }
                 continue; // Move to the next segment.
             }
@@ -575,7 +574,6 @@ public class PathTrackerClientMod implements ClientModInitializer {
     
             // Build a quad strip along the smooth curve for this segment.
             for (int i = 0; i < curvePoints.size() - 1; i++) {
-                emptyBuffer = false;
                 Vec3d current = curvePoints.get(i);
                 Vec3d next = curvePoints.get(i + 1);
                 Vec3d tangent = next.subtract(current).normalize();
@@ -593,34 +591,35 @@ public class PathTrackerClientMod implements ClientModInitializer {
                     (float)(currentLeft.y - camPos.y),
                     (float)(currentLeft.z - camPos.z))
                         .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(),
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
                     (float)(currentRight.x - camPos.x),
                     (float)(currentRight.y - camPos.y),
                     (float)(currentRight.z - camPos.z))
                         .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(),
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
                     (float)(nextRight.x - camPos.x),
                     (float)(nextRight.y - camPos.y),
                     (float)(nextRight.z - camPos.z))
                         .color(cubeRed, cubeGreen, cubeBlue, alpha)
-                    .vertex(matrixStack.peek().getPositionMatrix(),
+                        .next();
+                buffer.vertex(matrixStack.peek().getPositionMatrix(),
                     (float)(nextLeft.x - camPos.x),
                     (float)(nextLeft.y - camPos.y),
                     (float)(nextLeft.z - camPos.z))
-                        .color(cubeRed, cubeGreen, cubeBlue, alpha);
+                        .color(cubeRed, cubeGreen, cubeBlue, alpha)
+                        .next();
             }
         }
     
-        if (!emptyBuffer) {
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-        }
+        tessellator.draw();
         if (!depthOverride) {
             RenderSystem.disableDepthTest();
             RenderSystem.depthMask(true);
         }
         RenderSystem.enableCull();
-        RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);
-
+        RenderSystem.setShader(GameRenderer::getPositionTexProgram);
     }
     
     

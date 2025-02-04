@@ -14,33 +14,22 @@ repositories {
     maven { url = "https://maven.fabricmc.net/" }
 }
 
-
-def MC_VERSION = project.findProperty("mc_version") ?: "1.21.4"
-
-def yarnMappings = [
-    "1.20.1": "1.20.1+build.10",
-    "1.21.4": "1.21.4+build.8"
-]
-def chosenMappings = yarnMappings[MC_VERSION]
 dependencies {
-    minecraft "com.mojang:minecraft:${MC_VERSION}"
-    mappings "net.fabricmc:yarn:${chosenMappings}"
+    // Minecraft 1.20.1
+    minecraft "com.mojang:minecraft:1.20.1"
 
+    // A valid Yarn build for 1.20.1 that still exists on the Fabric Maven
+    // (As of writing, "1.20.1+build.10" is published. You can check the latest if you want.)
+    mappings "net.fabricmc:yarn:1.20.1+build.10"
+
+    // Fabric Loader (0.14.22 is known for 1.20.1; can also use 0.15.x if you prefer)
     modImplementation "net.fabricmc:fabric-loader:0.16.10"
-    if (MC_VERSION == "1.20.1") {
-        modImplementation "net.fabricmc.fabric-api:fabric-api:0.92.3+1.20.1"
-    } else if (MC_VERSION == "1.21.4") {
-        modImplementation "net.fabricmc.fabric-api:fabric-api:0.115.1+1.21.4"
-    }
 
+    // Fabric API for 1.20.1
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.92.3+1.20.1"
 }
 
 // We must use Java 17+ for Minecraft 1.20.1
-// but for 1.21.4 we can use Java 21+
 java {
-    if (MC_VERSION == "1.20.1") {
-        toolchain.languageVersion.set(JavaLanguageVersion.of(17))
-    } else if (MC_VERSION == "1.21.4") {
-        toolchain.languageVersion.set(JavaLanguageVersion.of(21))
-    }
+    toolchain.languageVersion.set(JavaLanguageVersion.of(17))
 }
