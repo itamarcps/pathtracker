@@ -326,6 +326,15 @@ public class PathStorageSessions {
             RegistryKey<World> dimensionKey = entry.getKey();
             List<BlockPos> positions = entry.getValue();
             String dimensionName = dimensionKey.getValue().toString().replace(':', '_').replace('/', '_');
+            // mapName might contain special characters not accepted by Windows/Linux!
+            // The full list is as following: '/', '\', ':', '*', '?', '"', '<', '>', '|'
+            // We need to replace all these characters with underscores.
+            mapName = mapName.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_');
+            // If the mapName is just a single '.' or '..', replace it with an underscore.
+            if (mapName.equals(".") || mapName.equals("..")) {
+                mapName = "_";
+            }
+
             String fileName = "path_data_" + mapName + "_" + dimensionName + ".bin";
             Path outFile = dataStoragePath.resolve(sessionName).resolve(fileName);
             if (!Files.exists(dataStoragePath.resolve(sessionName))) {
@@ -353,6 +362,14 @@ public class PathStorageSessions {
      */
     public Map<RegistryKey<World>, List<BlockPos>> load(String sessionName, String mapName) {
         Map<RegistryKey<World>, List<BlockPos>> visitedPositionsMap = new HashMap<>();
+        // mapName might contain special characters not accepted by Windows/Linux!
+        // The full list is as following: '/', '\', ':', '*', '?', '"', '<', '>', '|'
+        // We need to replace all these characters with underscores.
+        mapName = mapName.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_');
+        // If the mapName is just a single '.' or '..', replace it with an underscore.
+        if (mapName.equals(".") || mapName.equals("..")) {
+            mapName = "_";
+        }
         String filePrefix = "path_data_" + mapName + "_";
         
         // Overworld
