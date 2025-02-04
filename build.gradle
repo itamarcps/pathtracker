@@ -6,7 +6,7 @@ plugins {
 
 // Use your own group and version if you like
 group = "com"
-version = "2.0.0"
+version = "2.0.1"
 archivesBaseName = "pathtracker"
 
 repositories {
